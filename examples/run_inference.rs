@@ -3,12 +3,15 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use serde::Deserialize;
 use std::fs::File;
-use anyhow::Result;
 
 #[derive(Deserialize, Debug)]
-struct Record { text: String, #[serde(default)] language: String }
+struct Record { 
+    text: String, 
+    #[serde(default)] 
+    language: String 
+}
 
-fn main() -> Result<()> {
+fn main() -> anyhow::Result<()> {
     ort::init().with_name("GLiNER2_Engine").commit()?;
     
     println!("==================================================");
@@ -19,6 +22,7 @@ fn main() -> Result<()> {
         models_dir: "../models/fragments_fp16".to_string(),
         max_width: 8,
     };
+    
     let engine = Gliner2Engine::new(config)?;
 
     let test_file_path = "/mnt/crucial/jugaad/experiments/edito-gliner2/finetuning_local/data/dataset_variants/v3_reduced_remapped/test.jsonl";
@@ -43,7 +47,6 @@ fn main() -> Result<()> {
         "political_opinion".to_string(), "religious_philosophical_belief".to_string(), "license_number".to_string(), "vehicle_plate".to_string()
     ];
     
-    // Inseriamo task complessi: Entità, Relazioni e Classificazioni
     let schema_tasks = vec![
         SchemaTask::Entities(entity_labels),
         SchemaTask::Relations("works_at".to_string(), vec!["head".to_string(), "tail".to_string()]),
@@ -53,8 +56,8 @@ fn main() -> Result<()> {
     let mut counts_by_lang: HashMap<String, usize> = HashMap::new();
 
     for line in reader.lines() {
-        let line = line?;
-        if let Ok(record) = serde_json::from_str::<Record>(&line) {
+        let line_str = line?;
+        if let Ok(record) = serde_json::from_str::<Record>(&line_str) {
             let lang = if record.language.is_empty() { "unknown".to_string() } else { record.language.clone() };
             
             let count = counts_by_lang.entry(lang.clone()).or_insert(0);
@@ -90,11 +93,6 @@ fn main() -> Result<()> {
                     Err(e) => eprintln!("Errore durante estrazione: {:?}", e),
                 }
                 *count += 1;
-            }
-            
-            let is_done = ["it", "en", "pt", "de", "fr", "es"].iter().all(|l| counts_by_lang.get(*l).copied().unwrap_or(0) >= 10);
-            if is_done {
-                break;
             }
         }
         
