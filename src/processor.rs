@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Modulo per il preprocessing e la tokenizzazione del testo e degli schema.
+//! Module for preprocessing and tokenization of text and schemas.
 
 use tokenizers::Tokenizer;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 
-// Le costanti speciali di GLiNER2 estratte da processor.py
+// GLiNER2 special constants extracted from processor.py
 pub const SEP_STRUCT: &str = "[SEP_STRUCT]";
 pub const SEP_TEXT: &str = "[SEP_TEXT]";
 pub const P_TOKEN: &str = "[P]";
@@ -32,11 +32,11 @@ pub const DESC_TOKEN: &str = "[DESCRIPTION]";
 
 #[derive(Debug, Clone)]
 pub enum SchemaTask {
-    /// Task di estrazione entità. Contiene la lista dei nomi delle label (es. "persona", "città").
+    /// Entity extraction task. Contains the list of label names (e.g., "person", "city").
     Entities(Vec<String>),
-    /// Task di estrazione relazioni. Contiene il nome della relazione e i campi (es. "lavora_in", ["head", "tail"]).
+    /// Relation extraction task. Contains the relation name and fields (e.g., "works_at", ["head", "tail"]).
     Relations(String, Vec<String>),
-    /// Task di classificazione testo. Contiene il nome del task e le classi (es. "sentiment", ["positivo", "negativo"]).
+    /// Text classification task. Contains the task name and classes (e.g., "sentiment", ["positive", "negative"]).
     Classifications(String, Vec<String>),
 }
 
@@ -171,7 +171,7 @@ impl SchemaTransformer {
             combined_to_final_map.insert(i, current_subword_idx);
             
             let encoding = self.tokenizer.encode(*token, false)
-                .map_err(|e| anyhow!("Tokenization failed per {}: {}", token, e))?;
+                .map_err(|e| anyhow!("Tokenization failed for {}: {}", token, e))?;
                 
             let ids = encoding.get_ids();
             let start_sub = current_subword_idx;

@@ -6,3 +6,4 @@
 *.pt
 tokenizer.json
 .DS_Store
+plans/

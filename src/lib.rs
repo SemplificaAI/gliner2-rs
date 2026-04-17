@@ -38,6 +38,7 @@ pub use processor::SchemaTask;
 pub struct Gliner2Config {
     pub models_dir: String,
     pub max_width: usize,
+    pub model_type: ModelType,
 }
 
 impl Default for Gliner2Config {
@@ -45,6 +46,31 @@ impl Default for Gliner2Config {
         Self {
             models_dir: "models/fragments_fp16".to_string(),
             max_width: 8,
+            model_type: ModelType::PyTorch,
+        }
+    }
+}
+
+/// Tipo di modello GLiNER2 per gestire diverse architetture ONNX.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ModelType {
+    /// Modello PyTorch convertito (nostro server) - ha last_hidden_state
+    PyTorch,
+    /// Modello HuggingFace (download pubblico) - architettura diversa
+    HuggingFace,
+}
+
+impl Default for ModelType {
+    fn default() -> Self {
+        ModelType::PyTorch
+    }
+}
+
+impl std::fmt::Display for ModelType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModelType::PyTorch => write!(f, "PyTorch"),
+            ModelType::HuggingFace => write!(f, "HuggingFace"),
         }
     }
 }
@@ -104,11 +130,26 @@ impl Gliner2Engine {
                 .map_err(|e| anyhow::anyhow!("Error loading {}: {}", filename, e))
         };
 
-        // Caricamento in pipeline dei sottomodelli frammentati.
+        // Caricamento modelli basato sul tipo di modello
+        let (count_pred, count_lstm) = match config.model_type {
+            ModelType::PyTorch => {
+                // Modello PyTorch convertito: usa count_lstm_fp16.onnx
+                let count_lstm = load_session("count_lstm_fp16.onnx")?;
+                let count_pred = load_session("count_pred_fp16.onnx")?;
+                (count_pred, count_lstm)
+            }
+            ModelType::HuggingFace => {
+                // Modello HuggingFace: usa count_pred_fp16.onnx, count_lstm potrebbe non esistere
+                let count_pred = load_session("count_pred_fp16.onnx")?;
+                let count_lstm = load_session("count_lstm_fp16.onnx")
+                    .or_else(|_| load_session("count_pred_fp16.onnx"))?; // Fallback
+                (count_pred, count_lstm)
+            }
+        };
+
+        // Caricamento modelli comuni
         let encoder = load_session("encoder_fp16.onnx")?;
         let span_rep = load_session("span_rep_fp16.onnx")?;
-        let count_pred = load_session("count_pred_fp16.onnx")?;
-        let count_lstm = load_session("count_lstm_fp16.onnx")?;
         let classifier = load_session("classifier_fp16.onnx")?;
 
         let tokenizer_path = dir.join("tokenizer.json");
@@ -121,8 +162,8 @@ impl Gliner2Engine {
             count_lstm, 
             count_pred, 
             classifier, 
-            tokenizer,
-            config
+            tokenizer, 
+            config 
         })
     }
 
@@ -149,7 +190,25 @@ impl Gliner2Engine {
         ]?;
         let enc_outputs = self.encoder.run(enc_inputs)?;
         
-        let lhs_tensor = enc_outputs["last_hidden_state"].try_extract_tensor::<f32>()?.into_owned();
+        // Gestione output diversi basati sul tipo di modello
+        let lhs_tensor = match self.config.model_type {
+            ModelType::PyTorch => {
+                // Modello PyTorch: ha last_hidden_state
+                enc_outputs["last_hidden_state"].try_extract_tensor::<f32>()?.into_owned()
+            }
+            ModelType::HuggingFace => {
+                // Modello HuggingFace: usa hidden_states
+                if let Ok(tensor) = enc_outputs["hidden_states"].try_extract_tensor::<f32>() {
+                    tensor.into_owned()
+                } else if let Ok(tensor) = enc_outputs["last_hidden_state"].try_extract_tensor::<f32>() {
+                    tensor.into_owned()
+                } else if let Ok(tensor) = enc_outputs["output"].try_extract_tensor::<f32>() {
+                    tensor.into_owned()
+                } else {
+                    return Err(anyhow::anyhow!("No valid encoder output found for HuggingFace model"));
+                }
+            }
+        };
         
         let text_start = record.text_start;
         let text_end = record.text_end;
@@ -181,12 +240,52 @@ impl Gliner2Engine {
         let span_idx_arr = Array3::from_shape_vec((1, num_spans, 2), span_idx_data)?;
 
         // 3. Span Representation Layer
-        let span_inputs = ort::inputs![
-            "last_hidden_state" => Tensor::from_array(text_embs)?,
-            "span_idx" => Tensor::from_array(span_idx_arr)?
-        ]?;
+        let span_inputs = match self.config.model_type {
+            ModelType::PyTorch => {
+                // PyTorch model: usa last_hidden_state e span_idx
+                ort::inputs![
+                    "last_hidden_state" => Tensor::from_array(text_embs)?,
+                    "span_idx" => Tensor::from_array(span_idx_arr)?
+                ]?
+            }
+            ModelType::HuggingFace => {
+                // HuggingFace model: usa hidden_states, span_start_idx, span_end_idx
+                let mut start_idx_data = Vec::with_capacity(num_spans);
+                let mut end_idx_data = Vec::with_capacity(num_spans);
+                
+                for start in 0..text_len {
+                    for width in 1..=self.config.max_width {
+                        let end = start + width;
+                        if end > text_len {
+                            start_idx_data.push(0i64);
+                            end_idx_data.push(0i64);
+                        } else {
+                            start_idx_data.push(start as i64);
+                            end_idx_data.push(end as i64);
+                        }
+                    }
+                }
+                
+                let start_arr = Array2::from_shape_vec((1, num_spans), start_idx_data)?;
+                let end_arr = Array2::from_shape_vec((1, num_spans), end_idx_data)?;
+                
+                ort::inputs![
+                    "hidden_states" => Tensor::from_array(text_embs)?,
+                    "span_start_idx" => Tensor::from_array(start_arr)?,
+                    "span_end_idx" => Tensor::from_array(end_arr)?
+                ]?
+            }
+        };
+        
         let span_outputs = self.span_rep.run(span_inputs)?;
-        let span_embeddings = span_outputs["span_embeddings"].try_extract_tensor::<f32>()?.into_owned();
+        let span_embeddings = match self.config.model_type {
+            ModelType::PyTorch => {
+                span_outputs["span_embeddings"].try_extract_tensor::<f32>()?.into_owned()
+            }
+            ModelType::HuggingFace => {
+                span_outputs["span_representations"].try_extract_tensor::<f32>()?.into_owned()
+            }
+        };
 
         let hidden_size = lhs_tensor.shape()[2];
         let span_emb_shape = span_embeddings.shape();
@@ -258,9 +357,18 @@ impl Gliner2Engine {
 
             // 4b. Ramo Count LSTM (Entità e Relazioni)
             let pc_emb_first = lhs_tensor.slice(s![0..1, task_map.prompt_tok_idx, ..]).to_owned();
-            let cpred_inputs = ort::inputs![
-                "pc_emb_first" => Tensor::from_array(pc_emb_first)?
-            ]?;
+            let cpred_inputs = match self.config.model_type {
+                ModelType::PyTorch => {
+                    ort::inputs![
+                        "pc_emb_first" => Tensor::from_array(pc_emb_first)?
+                    ]?
+                }
+                ModelType::HuggingFace => {
+                    ort::inputs![
+                        "pc_emb" => Tensor::from_array(pc_emb_first)?
+                    ]?
+                }
+            };
             let cpred_outputs = self.count_pred.run(cpred_inputs)?;
             let count_logits = cpred_outputs["count_logits"].try_extract_tensor::<f32>()?.into_owned();
             
@@ -294,8 +402,12 @@ impl Gliner2Engine {
             let mut count_inputs_vec: Vec<(&str, Value<DynValueTypeMarker>)> = Vec::new();
             count_inputs_vec.push(("pc_emb", Tensor::from_array(schema_embs)?.into_dyn()));
             
+            // Always add onnx::Cast_1 since both models need it
+            let cast_val = Array0::from_elem((), pred_count as i64);
+            count_inputs_vec.push(("onnx::Cast_1", Tensor::from_array(cast_val)?.into_dyn()));
+            
             for input in &self.count_lstm.inputs {
-                if input.name != "pc_emb" {
+                if input.name != "pc_emb" && input.name != "onnx::Cast_1" {
                     let gold_val = Array0::from_elem((), pred_count as i64);
                     count_inputs_vec.push((
                         input.name.as_str(), 
