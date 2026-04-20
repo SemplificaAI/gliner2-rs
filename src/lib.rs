@@ -22,7 +22,10 @@ pub mod processor;
 use anyhow::Result;
 use ndarray::{Array0, Array2, Array3, s};
 use ort::{
-    execution_providers::{CPUExecutionProvider, CUDAExecutionProvider},
+    execution_providers::{
+        CPUExecutionProvider, CUDAExecutionProvider, CoreMLExecutionProvider,
+        OpenVINOExecutionProvider, QNNExecutionProvider, XNNPACKExecutionProvider,
+    },
     session::{builder::GraphOptimizationLevel, Session},
     value::{Tensor, Value, DynValueTypeMarker},
 };
@@ -123,7 +126,11 @@ impl Gliner2Engine {
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
                 .with_memory_pattern(false)?
                 .with_execution_providers([
+                    QNNExecutionProvider::default().build(),
+                    OpenVINOExecutionProvider::default().build(),
+                    CoreMLExecutionProvider::default().build(),
                     CUDAExecutionProvider::default().build(),
+                    XNNPACKExecutionProvider::default().build(),
                     CPUExecutionProvider::default().build()
                 ])?
                 .commit_from_file(&path)
@@ -191,22 +198,15 @@ impl Gliner2Engine {
         let enc_outputs = self.encoder.run(enc_inputs)?;
         
         // Gestione output diversi basati sul tipo di modello
-        let lhs_tensor = match self.config.model_type {
-            ModelType::PyTorch => {
-                // Modello PyTorch: ha last_hidden_state
-                enc_outputs["last_hidden_state"].try_extract_tensor::<f32>()?.into_owned()
-            }
-            ModelType::HuggingFace => {
-                // Modello HuggingFace: usa hidden_states
-                if let Ok(tensor) = enc_outputs["hidden_states"].try_extract_tensor::<f32>() {
-                    tensor.into_owned()
-                } else if let Ok(tensor) = enc_outputs["last_hidden_state"].try_extract_tensor::<f32>() {
-                    tensor.into_owned()
-                } else if let Ok(tensor) = enc_outputs["output"].try_extract_tensor::<f32>() {
-                    tensor.into_owned()
-                } else {
-                    return Err(anyhow::anyhow!("No valid encoder output found for HuggingFace model"));
-                }
+        let lhs_tensor = {
+            if let Some(val) = enc_outputs.get("hidden_states") {
+                val.try_extract_tensor::<f32>()?.into_owned()
+            } else if let Some(val) = enc_outputs.get("last_hidden_state") {
+                val.try_extract_tensor::<f32>()?.into_owned()
+            } else if let Some(val) = enc_outputs.get("output") {
+                val.try_extract_tensor::<f32>()?.into_owned()
+            } else {
+                return Err(anyhow::anyhow!("No valid encoder output found (tried hidden_states, last_hidden_state, output)"));
             }
         };
         
@@ -240,50 +240,57 @@ impl Gliner2Engine {
         let span_idx_arr = Array3::from_shape_vec((1, num_spans, 2), span_idx_data)?;
 
         // 3. Span Representation Layer
-        let span_inputs = match self.config.model_type {
-            ModelType::PyTorch => {
-                // PyTorch model: usa last_hidden_state e span_idx
-                ort::inputs![
-                    "last_hidden_state" => Tensor::from_array(text_embs)?,
-                    "span_idx" => Tensor::from_array(span_idx_arr)?
-                ]?
-            }
-            ModelType::HuggingFace => {
-                // HuggingFace model: usa hidden_states, span_start_idx, span_end_idx
-                let mut start_idx_data = Vec::with_capacity(num_spans);
-                let mut end_idx_data = Vec::with_capacity(num_spans);
-                
-                for start in 0..text_len {
-                    for width in 1..=self.config.max_width {
-                        let end = start + width;
-                        if end > text_len {
-                            start_idx_data.push(0i64);
-                            end_idx_data.push(0i64);
-                        } else {
-                            start_idx_data.push(start as i64);
-                            end_idx_data.push(end as i64);
-                        }
+        let mut has_span_idx = false;
+        let mut text_embs_name = "hidden_states";
+        for i in &self.span_rep.inputs {
+            if i.name == "span_idx" { has_span_idx = true; }
+            if i.name == "last_hidden_state" { text_embs_name = "last_hidden_state"; }
+            if i.name == "hidden_states" { text_embs_name = "hidden_states"; }
+            if i.name == "output" { text_embs_name = "output"; }
+        }
+
+        let span_inputs = if has_span_idx {
+            // PyTorch model style: uses text_embs and span_idx
+            ort::inputs![
+                text_embs_name => Tensor::from_array(text_embs)?,
+                "span_idx" => Tensor::from_array(span_idx_arr)?
+            ]?
+        } else {
+            // HuggingFace model style: uses text_embs, span_start_idx, span_end_idx
+            let mut start_idx_data = Vec::with_capacity(num_spans);
+            let mut end_idx_data = Vec::with_capacity(num_spans);
+            
+            for start in 0..text_len {
+                for width in 1..=self.config.max_width {
+                    let end = start + width;
+                    if end > text_len {
+                        start_idx_data.push(0i64);
+                        end_idx_data.push(0i64);
+                    } else {
+                        start_idx_data.push(start as i64);
+                        end_idx_data.push(end as i64);
                     }
                 }
-                
-                let start_arr = Array2::from_shape_vec((1, num_spans), start_idx_data)?;
-                let end_arr = Array2::from_shape_vec((1, num_spans), end_idx_data)?;
-                
-                ort::inputs![
-                    "hidden_states" => Tensor::from_array(text_embs)?,
-                    "span_start_idx" => Tensor::from_array(start_arr)?,
-                    "span_end_idx" => Tensor::from_array(end_arr)?
-                ]?
             }
+            
+            let start_arr = Array2::from_shape_vec((1, num_spans), start_idx_data)?;
+            let end_arr = Array2::from_shape_vec((1, num_spans), end_idx_data)?;
+            
+            ort::inputs![
+                text_embs_name => Tensor::from_array(text_embs)?,
+                "span_start_idx" => Tensor::from_array(start_arr)?,
+                "span_end_idx" => Tensor::from_array(end_arr)?
+            ]?
         };
         
         let span_outputs = self.span_rep.run(span_inputs)?;
-        let span_embeddings = match self.config.model_type {
-            ModelType::PyTorch => {
-                span_outputs["span_embeddings"].try_extract_tensor::<f32>()?.into_owned()
-            }
-            ModelType::HuggingFace => {
-                span_outputs["span_representations"].try_extract_tensor::<f32>()?.into_owned()
+        let span_embeddings = {
+            if let Some(val) = span_outputs.get("span_embeddings") {
+                val.try_extract_tensor::<f32>()?.into_owned()
+            } else if let Some(val) = span_outputs.get("span_representations") {
+                val.try_extract_tensor::<f32>()?.into_owned()
+            } else {
+                return Err(anyhow::anyhow!("No valid span_rep output found (tried span_embeddings, span_representations)"));
             }
         };
 
@@ -324,7 +331,15 @@ impl Gliner2Engine {
                     "span_embeddings" => Tensor::from_array(padded_embs)?
                 ]?;
                 let cls_outputs = self.classifier.run(cls_inputs)?;
-                let logits_tensor = cls_outputs["logits"].try_extract_tensor::<f32>()?.into_owned();
+                let logits_tensor = {
+                    if let Some(val) = cls_outputs.get("logits") {
+                        val.try_extract_tensor::<f32>()?.into_owned()
+                    } else if let Some(val) = cls_outputs.get("output") {
+                        val.try_extract_tensor::<f32>()?.into_owned()
+                    } else {
+                        return Err(anyhow::anyhow!("No valid classifier output found"));
+                    }
+                };
                 
                 let mut exp_sum = 0.0;
                 let mut exps = Vec::with_capacity(num_labels);
@@ -357,20 +372,21 @@ impl Gliner2Engine {
 
             // 4b. Ramo Count LSTM (Entità e Relazioni)
             let pc_emb_first = lhs_tensor.slice(s![0..1, task_map.prompt_tok_idx, ..]).to_owned();
-            let cpred_inputs = match self.config.model_type {
-                ModelType::PyTorch => {
-                    ort::inputs![
-                        "pc_emb_first" => Tensor::from_array(pc_emb_first)?
-                    ]?
-                }
-                ModelType::HuggingFace => {
-                    ort::inputs![
-                        "pc_emb" => Tensor::from_array(pc_emb_first)?
-                    ]?
+            let cpred_input_name = self.count_pred.inputs[0].name.as_str();
+            let cpred_inputs = ort::inputs![
+                cpred_input_name => Tensor::from_array(pc_emb_first)?
+            ]?;
+            let cpred_outputs = self.count_pred.run(cpred_inputs)?;
+            
+            let count_logits = {
+                if let Some(val) = cpred_outputs.get("count_logits") {
+                    val.try_extract_tensor::<f32>()?.into_owned()
+                } else if let Some(val) = cpred_outputs.get("output") {
+                    val.try_extract_tensor::<f32>()?.into_owned()
+                } else {
+                    return Err(anyhow::anyhow!("No valid count_pred output found"));
                 }
             };
-            let cpred_outputs = self.count_pred.run(cpred_inputs)?;
-            let count_logits = cpred_outputs["count_logits"].try_extract_tensor::<f32>()?.into_owned();
             
             let max_count = count_logits.shape()[1];
             let mut pred_count = 0;
@@ -402,12 +418,11 @@ impl Gliner2Engine {
             let mut count_inputs_vec: Vec<(&str, Value<DynValueTypeMarker>)> = Vec::new();
             count_inputs_vec.push(("pc_emb", Tensor::from_array(schema_embs)?.into_dyn()));
             
-            // Always add onnx::Cast_1 since both models need it
-            let cast_val = Array0::from_elem((), pred_count as i64);
-            count_inputs_vec.push(("onnx::Cast_1", Tensor::from_array(cast_val)?.into_dyn()));
-            
+            // Pass the required integer to any remaining input parameter.
+            // In flawed PyTorch exports this is often named "onnx::Cast_1".
+            // In corrected exports it's "gold_count_val" or similar.
             for input in &self.count_lstm.inputs {
-                if input.name != "pc_emb" && input.name != "onnx::Cast_1" {
+                if input.name != "pc_emb" {
                     let gold_val = Array0::from_elem((), pred_count as i64);
                     count_inputs_vec.push((
                         input.name.as_str(), 
@@ -415,9 +430,16 @@ impl Gliner2Engine {
                     ));
                 }
             }
-            
             let count_outputs = self.count_lstm.run(count_inputs_vec)?;
-            let struct_proj = count_outputs["count_embeddings"].try_extract_tensor::<f32>()?.into_owned();
+            let struct_proj = {
+                if let Some(val) = count_outputs.get("count_embeddings") {
+                    val.try_extract_tensor::<f32>()?.into_owned()
+                } else if let Some(val) = count_outputs.get("output") {
+                    val.try_extract_tensor::<f32>()?.into_owned()
+                } else {
+                    return Err(anyhow::anyhow!("No valid count_lstm output found"));
+                }
+            };
             let struct_proj_shape = struct_proj.shape();
             
             let mut proj_hidden = 0;
