@@ -7,3 +7,10 @@
 tokenizer.json
 .DS_Store
 plans/
+reference_implementations/
+.venv_qualcomm/
+models/
+.venv_qualcomm/
+reference_implementations/
+models/
+target/
