@@ -2,20 +2,10 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-SemplificaAI/gliner2--rs-blue?style=flat-square&logo=github)](https://github.com/SemplificaAI/gliner2-rs)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Version](https://img.shields.io/badge/Version-0.1.0--alpha-red.svg)](https://github.com/SemplificaAI/gliner2-rs)
-[![Status](https://img.shields.io/badge/Status-Bugged-orange.svg)](https://github.com/SemplificaAI/gliner2-rs)
+[![Version](https://img.shields.io/badge/Version-0.2.3-brightgreen.svg)](https://github.com/SemplificaAI/gliner2-rs)
+[![Status](https://img.shields.io/badge/Status-Beta-blue.svg)](https://github.com/SemplificaAI/gliner2-rs)
 
 **Native Rust Inference Engine for GLiNER2**
-
-> **WARNING: This is the first alpha release (v0.1.0-alpha) and contains known bugs.**
-> 
-> **Current Issues:**
-
-- HuggingFace model compatibility problems with `onnx::Cast_1` input
-- Entity extraction may produce fragmented results  
-- Some tensor shape mismatches with certain model types
-
-**Status:** Under active development - expect breaking changes
 
 `gliner2-rs` is a high-performance, Zero-Python inference engine designed to execute **GLiNER2** models using **ONNX Runtime**. It allows for extracting Named Entities (NER), Relations, and Global Classifications natively in Rust with maximum speed, supporting both CPU and NVIDIA GPU (CUDA) via hardware-accelerated Tensor operations.
 
