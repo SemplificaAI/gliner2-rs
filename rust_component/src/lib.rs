@@ -120,8 +120,18 @@ impl Gliner2Engine {
     pub fn new(config: Gliner2Config) -> Result<Self> {
         let dir = Path::new(&config.models_dir);
         
-        let load_session = |filename: &str| -> Result<Session> {
-            let path = dir.join(filename);
+        let load_session = |base_name: &str| -> Result<Session> {
+            let path_fp16 = dir.join(format!("{}_fp16.onnx", base_name));
+            let path_fp32 = dir.join(format!("{}_fp32.onnx", base_name));
+            
+            let path = if path_fp16.exists() {
+                path_fp16
+            } else if path_fp32.exists() {
+                path_fp32
+            } else {
+                return Err(anyhow::anyhow!("Neither {}_fp16.onnx nor {}_fp32.onnx exist", base_name, base_name));
+            };
+
             Session::builder()?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
                 .with_memory_pattern(false)?
@@ -134,30 +144,30 @@ impl Gliner2Engine {
                     CPUExecutionProvider::default().build()
                 ])?
                 .commit_from_file(&path)
-                .map_err(|e| anyhow::anyhow!("Error loading {}: {}", filename, e))
+                .map_err(|e| anyhow::anyhow!("Error loading {:?}: {}", path, e))
         };
 
         // Caricamento modelli basato sul tipo di modello
         let (count_pred, count_lstm) = match config.model_type {
             ModelType::PyTorch => {
-                // Modello PyTorch convertito: usa count_lstm_fp16.onnx
-                let count_lstm = load_session("count_lstm_fp16.onnx")?;
-                let count_pred = load_session("count_pred_fp16.onnx")?;
+                // Modello PyTorch convertito
+                let count_lstm = load_session("count_lstm")?;
+                let count_pred = load_session("count_pred")?;
                 (count_pred, count_lstm)
             }
             ModelType::HuggingFace => {
-                // Modello HuggingFace: usa count_pred_fp16.onnx, count_lstm potrebbe non esistere
-                let count_pred = load_session("count_pred_fp16.onnx")?;
-                let count_lstm = load_session("count_lstm_fp16.onnx")
-                    .or_else(|_| load_session("count_pred_fp16.onnx"))?; // Fallback
+                // Modello HuggingFace
+                let count_pred = load_session("count_pred")?;
+                let count_lstm = load_session("count_lstm")
+                    .or_else(|_| load_session("count_pred"))?; // Fallback
                 (count_pred, count_lstm)
             }
         };
 
         // Caricamento modelli comuni
-        let encoder = load_session("encoder_fp16.onnx")?;
-        let span_rep = load_session("span_rep_fp16.onnx")?;
-        let classifier = load_session("classifier_fp16.onnx")?;
+        let encoder = load_session("encoder")?;
+        let span_rep = load_session("span_rep")?;
+        let classifier = load_session("classifier")?;
 
         let tokenizer_path = dir.join("tokenizer.json");
         let tokenizer = Tokenizer::from_file(&tokenizer_path)
@@ -191,10 +201,24 @@ impl Gliner2Engine {
         let attention_mask = Array2::from_shape_vec((1, seq_len), record.attention_mask.clone())?;
 
         // 2. Passaggio Encoder (DeBERTa) -> Contextual Embeddings
-        let enc_inputs = ort::inputs![
-            "input_ids" => Tensor::from_array(input_ids)?,
-            "attention_mask" => Tensor::from_array(attention_mask)?
-        ]?;
+        let mut has_attention_mask = false;
+        for input in &self.encoder.inputs {
+            if input.name == "attention_mask" {
+                has_attention_mask = true;
+            }
+        }
+        
+        let enc_inputs = if has_attention_mask {
+            ort::inputs![
+                "input_ids" => Tensor::from_array(input_ids)?,
+                "attention_mask" => Tensor::from_array(attention_mask)?
+            ]?
+        } else {
+            ort::inputs![
+                "input_ids" => Tensor::from_array(input_ids)?
+            ]?
+        };
+        
         let enc_outputs = self.encoder.run(enc_inputs)?;
         
         // Gestione output diversi basati sul tipo di modello
