@@ -110,15 +110,16 @@ impl SchemaTransformer {
         let mut task_mappings_temp = Vec::new();
 
         for (i, task) in schema_tasks.iter().enumerate() {
-            let prompt_idx = combined_tokens.len(); 
-            
             let mut field_indices = Vec::new();
             let mut labels = Vec::new();
 
             match task {
                 SchemaTask::Entities(entity_labels) => {
-                    combined_tokens.push(C_TOKEN);
+                    combined_tokens.push("(");
+                    let prompt_idx = combined_tokens.len();
+                    combined_tokens.push(P_TOKEN);
                     combined_tokens.push("entities");
+                    combined_tokens.push("(");
                     
                     for label in entity_labels {
                         combined_tokens.push(E_TOKEN);
@@ -126,6 +127,8 @@ impl SchemaTransformer {
                         combined_tokens.push(label.as_str());
                         labels.push(label.clone());
                     }
+                    combined_tokens.push(")");
+                    combined_tokens.push(")");
                     
                     task_mappings_temp.push((
                         "entities".to_string(),
@@ -134,10 +137,13 @@ impl SchemaTransformer {
                         prompt_idx, 
                         field_indices
                     ));
-                },
+                }
                 SchemaTask::Relations(rel_name, fields) => {
+                    combined_tokens.push("(");
+                    let prompt_idx = combined_tokens.len();
                     combined_tokens.push(P_TOKEN);
                     combined_tokens.push(rel_name.as_str());
+                    combined_tokens.push("(");
                     
                     for field in fields {
                         combined_tokens.push(R_TOKEN);
@@ -145,6 +151,8 @@ impl SchemaTransformer {
                         combined_tokens.push(field.as_str());
                         labels.push(field.clone());
                     }
+                    combined_tokens.push(")");
+                    combined_tokens.push(")");
                     
                     task_mappings_temp.push((
                         rel_name.clone(),
@@ -153,17 +161,22 @@ impl SchemaTransformer {
                         prompt_idx, 
                         field_indices
                     ));
-                },
+                }
                 SchemaTask::Classifications(task_name, cls_labels) => {
-                    combined_tokens.push(C_TOKEN);
+                    combined_tokens.push("(");
+                    let prompt_idx = combined_tokens.len();
+                    combined_tokens.push(P_TOKEN);
                     combined_tokens.push(task_name.as_str());
+                    combined_tokens.push("(");
                     
                     for label in cls_labels {
-                        combined_tokens.push(E_TOKEN);
+                        combined_tokens.push(L_TOKEN); // or C_TOKEN? gliner2 uses L_TOKEN? Let's check python logic. Actually wait.
                         field_indices.push(combined_tokens.len());
                         combined_tokens.push(label.as_str());
                         labels.push(label.clone());
                     }
+                    combined_tokens.push(")");
+                    combined_tokens.push(")");
                     
                     task_mappings_temp.push((
                         task_name.clone(),

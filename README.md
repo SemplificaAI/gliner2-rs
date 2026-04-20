@@ -30,7 +30,7 @@ This crate completely replicates the advanced sub-word tokenization and prompt-g
 
 - **End-to-End Execution**: Full recreation of the GLiNER2 inference loop natively in Rust.
 - **Multi-Task Extraction**: Supports Entity Extraction, Relation Extraction, and Text Classifications in a single forward pass.
-- **Hardware Accelerated**: Dynamically uses the CUDA Execution Provider if an NVIDIA GPU is available, falling back to optimized CPU execution.
+- **Hardware Accelerated**: Dynamically uses QNN (Qualcomm NPU), CoreML (Apple Silicon), OpenVINO (Intel/AMD), CUDA Execution Provider if an NVIDIA GPU is available, falling back to optimized XNNPACK/CPU execution.
 - **FP16 & FP32 Support**: Fully compatible with Half-Precision (Float16) ONNX exports to cut memory footprints in half.
 - **Zero-Copy Tensor Flow**: Direct injection of raw hidden states across multiple neural network slices without CPU-GPU memory swaps.
 - **Built-in NMS**: Automatic Non-Maximum Suppression (NMS) to elegantly remove overlapping fictions entities based on their probabilities.
@@ -39,7 +39,7 @@ This crate completely replicates the advanced sub-word tokenization and prompt-g
 
 ### Installation Steps
 
-1. Add `gliner2-rs` to your `Cargo.toml`.
+1. Clone this repository or add `gliner2-rs` to your `Cargo.toml`.
 2. Ensure you have the `onnxruntime` C/C++ libraries available on your system path.
 3. Export the GLiNER2 models to ONNX fragmented versions. 
 
@@ -47,14 +47,14 @@ This crate completely replicates the advanced sub-word tokenization and prompt-g
 
 Because of GLiNER2's dynamic architecture (which cycles dynamically over a sequence of JSON prompts rather than acting as a static FeedForward layer), the PyTorch model must be exported into 5 fragmented files using a tracing script:
 
-*   `encoder_fp16.onnx`
-*   `span_rep_fp16.onnx`
-*   `count_pred_fp16.onnx`
-*   `count_lstm_fp16.onnx`
-*   `classifier_fp16.onnx`
+*   `encoder_fp16.onnx` (or `encoder_fp32.onnx`)
+*   `span_rep_fp16.onnx` (or `span_rep_fp32.onnx`)
+*   `count_pred_fp16.onnx` (or `count_pred_fp32.onnx`)
+*   `count_lstm_fp16.onnx` (or `count_lstm_fp32.onnx`)
+*   `classifier_fp16.onnx` (or `classifier_fp32.onnx`)
 *   `tokenizer.json`
 
-Place these files in a specific directory (e.g. `./models/`).
+Use the provided `onnx_conversion_scripts/06_export_base_multi_v1.py` script to trace and export models cleanly. Place these files in a specific directory (e.g. `./models/`).
 
 ## 💻 Usage
 
@@ -62,14 +62,14 @@ Place these files in a specific directory (e.g. `./models/`).
 use gliner2_inference::{Gliner2Engine, Gliner2Config, SchemaTask, ModelType};
 
 fn main() -> anyhow::Result<()> {
-    // Initialize ONNX Runtime environment
+    // Initialize ONNX Runtime environment (automatically binds to available NPUs/GPUs)
     ort::init().with_name("GLiNER2_Engine").commit()?;
 
     // Configure engine
     let config = Gliner2Config {
-        models_dir: "./models/fragments_fp16".to_string(),
+        models_dir: "./models/fastino_gliner2_multi_v1_fp16".to_string(),
         max_width: 8, // Maximum tokens per span
-        model_type: ModelType::Lmo3, // Use public lmo3 model
+        model_type: ModelType::HuggingFace, // Automatically routes tensors correctly
     };
     
     // Load and build session
@@ -107,19 +107,16 @@ fn main() -> anyhow::Result<()> {
 
 ## Model Types
 
-### Public Model (Lmo3)
-- **Type**: `ModelType::Lmo3`
-- **Source**: `lmo3/gliner2-multi-v1-onnx` from HuggingFace
+### HuggingFace Base Model
+- **Type**: `ModelType::HuggingFace`
+- **Source**: `fastino/gliner2-multi-v1` from HuggingFace
 - **Usage**: Free for testing and development
 - **Performance**: Good baseline, trained on general data
 
-### Premium Model (Semplifica) 
-- **Type**: `ModelType::Semplifica`
-- **Access**: Restricted to Semplifica s.r.l. customers only
+### Premium Fine-Tuned Model (PyTorch Local Export)
+- **Type**: `ModelType::PyTorch`
+- **Access**: Proprietary fine-tuned weights
 - **Performance**: Superior accuracy on domain-specific entities
-- **Contact**: sales@semplifica.ai for commercial licensing
-
-**Note**: The Semplifica model is protected and will return an authorization error if accessed without proper licensing.
 
 ## ⚖️ License
 
