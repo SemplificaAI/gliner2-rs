@@ -7,14 +7,6 @@ description = "Native Rust inference engine for GLiNER2 models using ONNX Runtim
 license = "Apache-2.0"
 repository = "https://github.com/SemplificaAI/gliner2-rs"
 
-[[bin]]
-name = "test_simple"
-path = "examples/test_simple.rs"
-
-[[bin]]
-name = "run_inference"
-path = "examples/run_inference.rs"
-
 [dependencies]
 # Manipolazione Tensor (L'equivalente NumPy per Rust)
 ndarray = "0.16.1"
