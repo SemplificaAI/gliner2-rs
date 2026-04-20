@@ -345,6 +345,7 @@ dependencies = [
  "half",
  "ndarray",
  "ort",
+ "regex",
  "serde",
  "serde_json",
  "tokenizers",

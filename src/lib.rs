@@ -210,24 +210,29 @@ impl Gliner2Engine {
             }
         };
         
-        let text_start = record.text_start;
-        let text_end = record.text_end;
-        let text_len = text_end - text_start;
-
-        if text_len == 0 {
+        let num_words = record.word_to_token_maps.len();
+        if num_words == 0 {
             return Ok((Vec::new(), Vec::new(), Vec::new()));
         }
 
-        // Estrazione esclusiva della sezione testuale
-        let text_embs = lhs_tensor.slice(s![0..1, text_start..text_end, ..]).to_owned();
+        let hidden_size = lhs_tensor.shape()[2];
+        let mut word_embs_data = Vec::with_capacity(num_words * hidden_size);
+        for &(start_sub, _) in &record.word_to_token_maps {
+            let word_emb = lhs_tensor.slice(s![0, start_sub, ..]);
+            for &val in word_emb {
+                word_embs_data.push(val);
+            }
+        }
+        let text_embs = Array3::from_shape_vec((1, num_words, hidden_size), word_embs_data)?;
+        let text_len = num_words;
 
         // Generazione iterativa degli Span Index (alberi di combinazione)
         let num_spans = text_len * self.config.max_width;
         let mut span_idx_data: Vec<i64> = Vec::with_capacity(num_spans * 2);
         for start in 0..text_len {
-            for width in 1..=self.config.max_width {
+            for width in 0..self.config.max_width {
                 let end = start + width;
-                if end > text_len {
+                if end >= text_len {
                     // Out-of-bounds pad per sicurezza ONNX gather node
                     span_idx_data.push(0);
                     span_idx_data.push(0);
@@ -261,9 +266,9 @@ impl Gliner2Engine {
             let mut end_idx_data = Vec::with_capacity(num_spans);
             
             for start in 0..text_len {
-                for width in 1..=self.config.max_width {
+                for width in 0..self.config.max_width {
                     let end = start + width;
-                    if end > text_len {
+                    if end >= text_len {
                         start_idx_data.push(0i64);
                         end_idx_data.push(0i64);
                     } else {
@@ -483,9 +488,9 @@ impl Gliner2Engine {
                                 
                                 let prob = 1.0 / (1.0 + (-logit).exp());
                                 
-                                if prob > 0.5 { // Threshold Hardcodata (Standard GLiNER: 0.5)
-                                    let original_start = record.word_to_token_maps.iter().find(|map| map.0 == record.text_start + start).map(|map| map.0).unwrap_or(record.text_start + start);
-                                    let original_end = record.word_to_token_maps.iter().find(|map| map.1 == record.text_start + end).map(|map| map.1).unwrap_or(record.text_start + end);
+                                if prob > 0.15 { // Lowered threshold for greater recall
+                                    let original_start = record.word_to_token_maps[start].0;
+                                    let original_end = record.word_to_token_maps[end - 1].1;
                                     
                                     if original_end <= record.input_ids.len() && original_start < original_end {
                                         let token_slice = &record.input_ids[original_start..original_end];

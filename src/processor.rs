@@ -17,6 +17,7 @@
 use tokenizers::Tokenizer;
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
+use regex::Regex;
 
 // GLiNER2 special constants extracted from processor.py
 pub const SEP_STRUCT: &str = "[SEP_STRUCT]";
@@ -62,17 +63,48 @@ pub struct ProcessedRecord {
     pub word_to_token_maps: Vec<(usize, usize)>,
 }
 
+#[derive(Clone, Debug)]
+pub struct WhitespaceTokenSplitter {
+    re: Regex,
+}
+
+impl WhitespaceTokenSplitter {
+    pub fn new() -> Result<Self> {
+        let re = Regex::new(
+            r"(?xi)
+            (?:https?://[^\s]+|www\.[^\s]+)
+            |[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}
+            |@[a-z0-9_]+
+            |\w+(?:[-_]\w+)*
+            |\S
+        ",
+        )?;
+        Ok(Self { re })
+    }
+
+    pub fn split<'a>(&self, text: &'a str) -> Vec<&'a str> {
+        self.re
+            .find_iter(text)
+            .map(|m| m.as_str())
+            .collect()
+    }
+}
+
 pub struct SchemaTransformer {
     tokenizer: Tokenizer,
+    word_splitter: WhitespaceTokenSplitter,
 }
 
 impl SchemaTransformer {
     pub fn new(tokenizer: Tokenizer) -> Self {
-        Self { tokenizer }
+        Self { 
+            tokenizer,
+            word_splitter: WhitespaceTokenSplitter::new().unwrap(),
+        }
     }
 
     pub fn transform(&self, text: &str, schema_tasks: &[SchemaTask]) -> Result<ProcessedRecord> {
-        let words: Vec<&str> = text.split_whitespace().collect();
+        let words: Vec<&str> = self.word_splitter.split(text);
         
         let mut combined_tokens = Vec::new();
         let mut task_mappings_temp = Vec::new();
