@@ -10,8 +10,8 @@ from gliner2 import GLiNER2
 
 def export_fragments():
     print("==================================================")
-    print("Esportazione Frammentata End-to-End (ONNX FP16)")
-    print("Ottimizzazione specifica per backend Rust / C++")
+    print("End-to-End Fragmented Export (ONNX FP32 & FP16)")
+    print("Specific optimization for Rust / C++ backends")
     print("==================================================")
 
     model_path = "fastino/gliner2-multi-v1"
@@ -20,15 +20,19 @@ def export_fragments():
     out_dir_fp32.mkdir(parents=True, exist_ok=True)
     out_dir_fp16.mkdir(parents=True, exist_ok=True)
     
-    print("Caricamento modello GLiNER2...")
+    print("Loading GLiNER2 model...")
     model = GLiNER2.from_pretrained(model_path)
     model.eval()
     
-    # Per esportare in FP16 convertiamo subito il modello in half precision (se stiamo su GPU, altrimenti CPU lo gestisce male per l'export di solito, 
-    # ma proviamo esportando normalmente e se serve poi usiamo onnx transformer per fp16, oppure tracciamo direttamente con autocast).
-    # Per una esportazione sicura, lo esportiamo in FP32 e poi lo convertiremo in FP16 tramite lo strumento onnx, come in 02_convert_fp16.
+    # NOTE ON FP16 EXPORT STRATEGY:
+    # To export safely, we first trace the model in FP32. CPU execution often
+    # struggles with native FP16 traces. We will convert the FP32 ONNX graph
+    # into FP16 using onnxruntime transformers later in the script.
     
+    # ==========================================
     # 1. ENCODER
+    # ==========================================
+    # Extracts the DeBERTa/RoBERTa base encoder.
     class EncoderWrapper(nn.Module):
         def __init__(self, encoder):
             super().__init__()
@@ -36,7 +40,7 @@ def export_fragments():
         def forward(self, input_ids, attention_mask):
             return self.encoder(input_ids, None, attention_mask)
             
-    print("\n--- 1. Esportazione Encoder ---")
+    print("\n--- 1. Exporting Encoder ---")
     enc_wrapper = EncoderWrapper(model.encoder)
     dummy_input_ids = torch.randint(0, 1000, (1, 16))
     dummy_attention_mask = torch.ones((1, 16))
@@ -57,16 +61,16 @@ def export_fragments():
             opset_version=14,
             dynamo=False
         )
-    print(f"Encoder salvato: {encoder_onnx}")
+    print(f"Encoder saved: {encoder_onnx}")
 
+    # ==========================================
     # 2. SPAN REP LAYER
-    # In gliner2 SpanRepLayer prende (hidden_states, spans)
-    # dove spans sono indici di start/end di shape [num_spans, 2]
-    # Ma in gliner1 è [batch, num_spans, 2]. Controlliamo GLiNER2 SpanRepLayer.
-    # Proviamo con (hidden_states, spans) come (batch, seq, hidden), (batch, num_spans, 2)
+    # ==========================================
+    # Generates representations for all possible span boundaries up to `max_width`.
+    # It takes hidden states and a span index tensor of shape [batch, num_spans, 2].
     hidden_size = model.encoder.config.hidden_size
     
-    print("\n--- 2. Esportazione SpanRepLayer ---")
+    print("\n--- 2. Exporting SpanRepLayer ---")
     class SpanRepWrapper(nn.Module):
         def __init__(self, span_rep_layer):
             super().__init__()
@@ -79,7 +83,7 @@ def export_fragments():
     span_wrapper = SpanRepWrapper(model.span_rep.span_rep_layer)
     dummy_hidden = torch.randn(1, 16, hidden_size)
     
-    # Costruiamo dummy_span_idx
+    # Build dummy_span_idx
     max_width = model.span_rep.span_rep_layer.max_width
     num_spans = 16 * max_width
     dummy_span_idx = torch.randint(0, 16, (1, num_spans, 2))
@@ -95,15 +99,18 @@ def export_fragments():
             dynamic_axes={
                 'last_hidden_state': {0: 'batch_size', 1: 'sequence_length'},
                 'span_idx': {0: 'batch_size', 1: 'num_spans'},
-                'span_embeddings': {0: 'batch_size', 1: 'sequence_length'} # Si noti che l'output è [B, L, max_width, D]
+                'span_embeddings': {0: 'batch_size', 1: 'sequence_length'} # Note: output is actually [B, L, max_width, D]
             },
             opset_version=14,
             dynamo=False
         )
-    print(f"SpanRepLayer salvato: {span_onnx}")
+    print(f"SpanRepLayer saved: {span_onnx}")
 
+    # ==========================================
     # 3. COUNT PRED
-    print("\n--- 3. Esportazione CountPred ---")
+    # ==========================================
+    # Predicts how many instances of a class exist based on prompt-context embeddings.
+    print("\n--- 3. Exporting CountPred ---")
     class CountPredWrapper(nn.Module):
         def __init__(self, count_pred):
             super().__init__()
@@ -126,23 +133,28 @@ def export_fragments():
             opset_version=14,
             dynamo=False
         )
-    print(f"CountPred salvato: {cpred_onnx}")
+    print(f"CountPred saved: {cpred_onnx}")
 
+    # ==========================================
     # 4. COUNT LSTM
-    print("\n--- 3. Esportazione CountLSTM ---")
+    # ==========================================
+    # Dynamic sequence unrolling. We use a nn.GRU inside the wrapper.
+    # Note: GLiNER2 originally uses CompileSafeGRU which fails in ONNX due to dynamic 
+    # Out-of-Bounds `Gather` errors when unrolling. We must trace this correctly.
+    print("\n--- 4. Exporting CountLSTM ---")
     class CountLSTMWrapper(nn.Module):
         def __init__(self, count_lstm):
             super().__init__()
             self.count_lstm = count_lstm
         def forward(self, pc_emb, gold_count_val):
-            # Pass the tensor directly to avoid TracerWarning and onnx::Cast_1
-            # If the original code does torch.arange(gold_count_val), passing a 0D tensor works fine in PyTorch 
-            # and traces correctly as a dynamic shape in ONNX.
+            # Pass the tensor directly to avoid TracerWarning and onnx::Cast_1.
+            # If the original code does torch.arange(gold_count_val), passing a 0D tensor 
+            # works fine in PyTorch and traces correctly as a dynamic shape in ONNX.
             return self.count_lstm(pc_emb, gold_count_val)
             
     count_wrapper = CountLSTMWrapper(model.count_embed)
     dummy_pc_emb = torch.randn(5, hidden_size)  # (M, hidden_size)
-    dummy_count = torch.tensor(3, dtype=torch.int64) # Usiamo un tensor al posto di un int!
+    dummy_count = torch.tensor(3, dtype=torch.int64) # Use a tensor instead of an int!
     
     count_onnx = out_dir_fp32 / "count_lstm_fp32.onnx"
     with torch.no_grad():
@@ -161,14 +173,15 @@ def export_fragments():
                 opset_version=14,
                 dynamo=False
             )
-            print(f"CountLSTM salvato: {count_onnx}")
+            print(f"CountLSTM saved: {count_onnx}")
         except Exception as e:
-            print(f"Errore CountLSTM (probabile incompatibilità con scalare intero dinamico): {e}")
+            print(f"CountLSTM Error (likely incompatible dynamic scalar): {e}")
 
-    # 4. CLASSIFIERS
-    print("\n--- 4. Esportazione Classifier (FeedForward) ---")
-    # In GLiNER2, il classifier solitamente calcola i logit per lo span.
-    # classifier: Sequential(...)
+    # ==========================================
+    # 5. CLASSIFIERS
+    # ==========================================
+    print("\n--- 5. Exporting Classifier (FeedForward) ---")
+    # In GLiNER2, the classifier calculates the final logits for the spans.
     class ClassifierWrapper(nn.Module):
         def __init__(self, classifier):
             super().__init__()
@@ -194,9 +207,12 @@ def export_fragments():
             opset_version=14,
             dynamo=False
         )
-    print(f"Classifier salvato: {cls_onnx}")
+    print(f"Classifier saved: {cls_onnx}")
     
-    print("\n[Esportazione base terminata: Conversione in FP16...]")
+    # ==========================================
+    # FP16 CONVERSION
+    # ==========================================
+    print("\n[Base export completed. Starting FP16 conversion...]")
     import onnx
     from onnxruntime.transformers.optimizer import optimize_model
     from onnxruntime.transformers.float16 import convert_float_to_float16
@@ -208,19 +224,19 @@ def export_fragments():
             
         out_name = model_name.replace("_fp32.onnx", "_fp16.onnx")
         out_path = out_dir_fp16 / out_name
-        print(f"Conversione {model_name} -> {out_name}")
+        print(f"Converting {model_name} -> {out_name}")
         
         model_onnx = onnx.load(str(in_path))
-        # Applica ottimizzazioni e casta a FP16
-        # Si potrebbero usare le utility interne di onnxruntime
+        
+        # Apply optimizations and cast to FP16
         model_fp16 = convert_float_to_float16(model_onnx, keep_io_types=True)
         onnx.save(model_fp16, str(out_path))
         
         size_mb_32 = os.path.getsize(in_path) / (1024*1024)
         size_mb_16 = os.path.getsize(out_path) / (1024*1024)
-        print(f"  Riduzione: {size_mb_32:.2f} MB -> {size_mb_16:.2f} MB")
+        print(f"  Size reduction: {size_mb_32:.2f} MB -> {size_mb_16:.2f} MB")
         
-    # Copia il tokenizers config
+    # Copy the tokenizer config
     from huggingface_hub import hf_hub_download
     import shutil
     try:
@@ -234,7 +250,7 @@ def export_fragments():
     except Exception as e:
         print("Could not copy tokenizer.json:", e)
         
-    print("\n✅ Cartella modelli NPU/GPU E2E FP32 e FP16 pronta all'uso per Rust!")
+    print("\n✅ End-to-end models (FP32 & FP16) are ready for Rust inference!")
 
 if __name__ == "__main__":
     export_fragments()
