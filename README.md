@@ -50,7 +50,7 @@ Comparison between native Rust ONNX execution and standard Python PyTorch infere
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Rust** | ONNX Runtime (NPU - QNN) | `gliner2-multi-v1-onnx` | **~3.01 s** ⚡ | 51 | 1.16 s | **~22.78 ms** |
 | **Rust** | ONNX Runtime (CPU ARM64) | `gliner2-multi-v1-onnx` | **~3.18 s** | 51 | 1.46 s | **~28.63 ms** |
-| **Python** | PyTorch (CPU) | `gliner_multi-v2.1` | **~12.98 s** 🐢 | 13 | 0.33 s | **~25.37 ms** |
+| **Python 3.12** | PyTorch (CPU ARM64) | `gliner_multi-v2.1` | **~12.98 s** 🐢 | 13 | 0.33 s | **~25.37 ms** |
 
 **Takeaways:**
 - **Cold Start (Startup Time):** Rust completely skips the massive Python/PyTorch loading overhead, initializing the engine and weights **>4x faster** (~3s vs ~13s). This makes it vastly superior for edge devices, serverless functions, or quick on-demand extractions.
