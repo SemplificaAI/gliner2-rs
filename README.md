@@ -155,6 +155,12 @@ Licensed under the [Apache License, Version 2.0](LICENSE).
 This project was developed by Dario Finardi at Semplifica s.r.l.
 # Release Notes
 
+## [v0.3.2] - 2026-04-21
+### 🎉 Improvements
+- **Advanced Multitask Extraction**: Expanded `test_hf_download.rs` to demonstrate concurrent extraction of Entities, Relations, and Classifications (Sentiment/Topic).
+- **Relations Schema Fix**: Corrected the relations schema mapping to properly use `head` and `tail` node identifiers.
+- **Internationalization**: Translated remaining Italian logs and comments to English for broader accessibility.
+
 ## [v0.3.0] - 2026-04-21
 ### 🎉 New Features
 - **HuggingFace Hub Auto-Download**: Added `Gliner2Engine::from_pretrained()` to dynamically download ONNX models (FP16/FP32) directly from HuggingFace via the official `hf-hub` crate.
