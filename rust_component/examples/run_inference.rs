@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
 
     let model_type = if args.len() > 2 {
         match args[2].to_lowercase().as_str() {
-            "huggingface" | "lmo3" | "public" => ModelType::HuggingFace,
+            "huggingface" | "public" => ModelType::HuggingFace,
             "pytorch" | "fragments" | "our" => ModelType::PyTorch,
             _ => ModelType::PyTorch  // Default to PyTorch for run_inference
         }
@@ -143,9 +143,9 @@ fn main() -> anyhow::Result<()> {
     println!("\n=== USAGE ===");
     println!("cargo run --example run_inference -- [models_dir] [model_type]");
     println!("  models_dir: Path to ONNX models (default: ../models/fragments_fp16)");
-    println!("  model_type: 'lmo3' (public) or 'semplifica' (premium, reserved)");
+    println!("  model_type: 'fastino' (public) or 'semplifica' (premium, reserved)");
     println!("\nExamples:");
-    println!("  cargo run --example run_inference -- ../models/lmo3-gliner2-multi-v1-onnx/onnx lmo3");
+    println!("  cargo run --example run_inference -- ../models/fastino_gliner2_multi_v1_fp16 fastino");
     println!("  cargo run --example run_inference -- ../models/semplifica-gliner2 semplifica");
     
     Ok(())

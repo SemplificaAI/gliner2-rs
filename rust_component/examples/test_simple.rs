@@ -22,12 +22,12 @@ fn main() -> anyhow::Result<()> {
     let models_dir = if args.len() > 1 {
         args[1].clone()
     } else {
-        "../models/lmo3-gliner2-multi-v1-onnx/onnx".to_string()
+        "../models/fastino_gliner2_multi_v1_fp16".to_string()
     };
 
     let model_type = if args.len() > 2 {
         match args[2].to_lowercase().as_str() {
-            "huggingface" | "lmo3" | "public" => ModelType::HuggingFace,
+            "huggingface" | "public" => ModelType::HuggingFace,
             "pytorch" | "fragments" | "our" => ModelType::PyTorch,
             _ => ModelType::HuggingFace  // Default to HuggingFace
         }
@@ -109,8 +109,8 @@ fn main() -> anyhow::Result<()> {
     
     println!("\n=== USAGE ===");
     println!("cargo run --example test_simple -- [models_dir] [model_type]");
-    println!("  models_dir: Path to ONNX models (default: ../models/lmo3-gliner2-multi-v1-onnx/onnx)");
-    println!("  model_type: 'lmo3' (public) or 'semplifica' (premium, reserved)");
+    println!("  models_dir: Path to ONNX models (default: ../models/fastino_gliner2_multi_v1_fp16)");
+    println!("  model_type: 'fastino' (public) or 'semplifica' (premium, reserved)");
     
     Ok(())
 }

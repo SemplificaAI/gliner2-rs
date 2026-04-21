@@ -116,6 +116,80 @@ pub struct Gliner2Engine {
 }
 
 impl Gliner2Engine {
+    /// Scarica i modelli e inizializza il motore direttamente da HuggingFace Hub.
+    /// Il download include l'header `User-Agent` come specificato in:
+    /// https://huggingface.co/docs/hub/models-download-stats
+    pub fn from_pretrained(
+        repo_id: &str,
+        subfolder: Option<&str>,
+        model_type: ModelType,
+    ) -> Result<Self> {
+        // Header come da spec HF: <library_name>/<library_version>; <language_name>/<language_version>; <os_name>/<os_version>
+        let api = hf_hub::api::sync::ApiBuilder::new()
+            .with_user_agent(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
+            .with_user_agent("rust", "unknown")
+            .with_user_agent(std::env::consts::OS, "unknown")
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to initialize HF API: {}", e))?;
+
+        let repo = api.model(repo_id.to_string());
+
+        let is_fp16 = subfolder.unwrap_or("").contains("16");
+        let suffix = if is_fp16 { "_fp16.onnx" } else { "_fp32.onnx" };
+
+        let mut files_to_download = vec![
+            format!("encoder{}", suffix),
+            format!("span_rep{}", suffix),
+            format!("count_pred{}", suffix),
+            format!("classifier{}", suffix),
+            "tokenizer.json".to_string(),
+        ];
+
+        if model_type == ModelType::PyTorch {
+            files_to_download.push(format!("count_lstm{}", suffix));
+        } else {
+            files_to_download.push(format!("count_lstm{}", suffix));
+        }
+
+        let mut last_path = None;
+        for file in &files_to_download {
+            let repo_path = if let Some(sub) = subfolder {
+                format!("{}/{}", sub, file)
+            } else {
+                file.clone()
+            };
+
+            println!("Downloading/verifying {}...", repo_path);
+            match repo.get(&repo_path) {
+                Ok(p) => last_path = Some(p),
+                Err(e) => {
+                    if file.starts_with("count_lstm") && model_type == ModelType::HuggingFace {
+                        println!("Note: {} not found, using fallback.", repo_path);
+                    } else {
+                        return Err(anyhow::anyhow!("Failed to download {}: {}", repo_path, e));
+                    }
+                }
+            }
+        }
+
+        let models_dir = if let Some(p) = last_path {
+            p.parent()
+                .ok_or_else(|| anyhow::anyhow!("Invalid file path"))?
+                .to_string_lossy()
+                .into_owned()
+        } else {
+            return Err(anyhow::anyhow!("No files downloaded"));
+        };
+
+        let config = Gliner2Config {
+            models_dir,
+            max_width: 8,
+            model_type,
+        };
+
+        Self::new(config)
+    }
+
     /// Inizializza le reti neurali caricando i file ONNX e il Tokenizer.
     pub fn new(config: Gliner2Config) -> Result<Self> {
         let dir = Path::new(&config.models_dir);
