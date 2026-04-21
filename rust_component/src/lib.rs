@@ -590,11 +590,16 @@ impl Gliner2Engine {
                                     let original_start = record.word_to_token_maps[start].0;
                                     let original_end = record.word_to_token_maps[end - 1].1;
                                     
+                                    let char_start = record.word_to_char_maps[start].0;
+                                    let char_end = record.word_to_char_maps[end - 1].1;
+
                                     if original_end <= record.input_ids.len() && original_start < original_end {
-                                        let token_slice = &record.input_ids[original_start..original_end];
-                                        let u32_tokens: Vec<u32> = token_slice.iter().map(|&x| x as u32).collect();
-                                        let entity_text = self.tokenizer.decode(&u32_tokens, true).unwrap_or_default();
-                                            
+                                        let entity_text = if char_start <= char_end && char_end <= text.len() {
+                                            text[char_start..char_end].to_string()
+                                        } else {
+                                            String::new()
+                                        };
+                                        
                                         if !entity_text.trim().is_empty() {
                                             c_matches.push(ExtractedEntity {
                                                 score: prob,

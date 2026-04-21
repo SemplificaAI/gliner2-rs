@@ -61,6 +61,7 @@ pub struct ProcessedRecord {
     pub text_end: usize,
     
     pub word_to_token_maps: Vec<(usize, usize)>,
+    pub word_to_char_maps: Vec<(usize, usize)>,
 }
 
 #[derive(Clone, Debug)]
@@ -88,6 +89,13 @@ impl WhitespaceTokenSplitter {
             .map(|m| m.as_str())
             .collect()
     }
+
+    pub fn split_with_offsets<'a>(&self, text: &'a str) -> Vec<(&'a str, usize, usize)> {
+        self.re
+            .find_iter(text)
+            .map(|m| (m.as_str(), m.start(), m.end()))
+            .collect()
+    }
 }
 
 pub struct SchemaTransformer {
@@ -104,7 +112,7 @@ impl SchemaTransformer {
     }
 
     pub fn transform(&self, text: &str, schema_tasks: &[SchemaTask]) -> Result<ProcessedRecord> {
-        let words: Vec<&str> = self.word_splitter.split(text);
+        let words_with_offsets = self.word_splitter.split_with_offsets(text);
         
         let mut combined_tokens = Vec::new();
         let mut task_mappings_temp = Vec::new();
@@ -196,8 +204,10 @@ impl SchemaTransformer {
         combined_tokens.push(SEP_TEXT);
         let text_start_idx = combined_tokens.len();
         
-        for w in &words {
-            combined_tokens.push(w);
+        let mut word_to_char_maps = Vec::new();
+        for (w, start_char, end_char) in &words_with_offsets {
+            combined_tokens.push(*w);
+            word_to_char_maps.push((*start_char, *end_char));
         }
         let text_end_idx = combined_tokens.len();
 
@@ -263,6 +273,7 @@ impl SchemaTransformer {
             text_start: text_real_start,
             text_end: text_real_end,
             word_to_token_maps,
+            word_to_char_maps,
         })
     }
 }

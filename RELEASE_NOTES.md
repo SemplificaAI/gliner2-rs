@@ -1,5 +1,9 @@
 # Release Notes
 
+## [v0.3.1] - 2026-04-21
+### 🧹 Fixes & Cleanups
+- **Accurate Span Extraction Boundaries**: Fixed a token decoding formatting bug. Entity text extraction is now mathematically sliced directly from the original character byte offsets of the input string, rather than being lossy-reconstructed by the tokenizer decoder. This completely preserves the native spacing, punctuation, and capitalization of entities like "s.r.l." instead of producing "s . r . l .".
+
 ## [v0.3.0] - 2026-04-21
 ### 🎉 New Features
 - **HuggingFace Hub Auto-Download**: Added `Gliner2Engine::from_pretrained()` to dynamically download ONNX models (FP16/FP32) directly from HuggingFace via the official `hf-hub` crate.
