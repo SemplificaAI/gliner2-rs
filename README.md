@@ -48,12 +48,12 @@ Comparison between native Rust ONNX execution and standard Python PyTorch infere
 
 | Environment | Backend (Hardware) | Model | Startup Time | Entities Extracted | Avg Time (Total) | Avg Time / Entity |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Rust** | ONNX Runtime (NPU - QNN) | `gliner2-multi-v1-onnx` | **~3.01 s** ⚡ | 51 | 1.16 s | **~22.78 ms** |
-| **Rust** | ONNX Runtime (CPU ARM64) | `gliner2-multi-v1-onnx` | **~3.18 s** | 51 | 1.46 s | **~28.63 ms** |
-| **Python 3.12** | PyTorch (CPU ARM64) | `gliner_multi-v2.1` | **~12.98 s** 🐢 | 13 | 0.33 s | **~25.37 ms** |
+| **Rust** | ONNX Runtime (NPU - QNN) | `gliner2-multi-v1-onnx` | **~2.02 s** ⚡ | 41 | 0.65 s | **~16.07 ms** |
+| **Rust** | ONNX Runtime (CPU ARM64) | `gliner2-multi-v1-onnx` | **~1.89 s** | 41 | 0.68 s | **~16.58 ms** |
+| **Python 3.12** | PyTorch (CPU ARM64) | `fastino/gliner2-multi-v1` | **~9.21 s** 🐢 | 15 | 0.33 s | **~22.02 ms** |
 
 **Takeaways:**
-- **Cold Start (Startup Time):** Rust completely skips the massive Python/PyTorch loading overhead, initializing the engine and weights **>4x faster** (~3s vs ~13s). This makes it vastly superior for edge devices, serverless functions, or quick on-demand extractions.
+- **Cold Start (Startup Time):** Rust completely skips the massive Python/PyTorch loading overhead, initializing the engine and weights **>4.5x faster** (~2s vs ~9s). This makes it vastly superior for edge devices, serverless functions, or quick on-demand extractions.
 - **Inference Speed:** Rust ONNX natively leverages the NPU (which PyTorch currently struggles to target effectively on Windows on ARM), gaining a solid speed advantage even when extracting 4x more entities.
 
 ---
