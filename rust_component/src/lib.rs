@@ -36,7 +36,7 @@ use serde::Serialize;
 use processor::SchemaTransformer;
 pub use processor::SchemaTask;
 
-/// Configurazione base per l'inizializzazione del motore.
+/// Base configuration for initializing the engine.
 #[derive(Debug, Clone)]
 pub struct Gliner2Config {
     pub models_dir: String,
@@ -54,12 +54,12 @@ impl Default for Gliner2Config {
     }
 }
 
-/// Tipo di modello GLiNER2 per gestire diverse architetture ONNX.
+/// GLiNER2 model type to handle different ONNX architectures.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ModelType {
-    /// Modello PyTorch convertito (nostro server) - ha last_hidden_state
+    /// Converted PyTorch model (our server) - has last_hidden_state
     PyTorch,
-    /// Modello HuggingFace (download pubblico) - architettura diversa
+    /// HuggingFace model (public download) - different architecture
     HuggingFace,
 }
 
@@ -78,7 +78,7 @@ impl std::fmt::Display for ModelType {
     }
 }
 
-/// Dati di un'entità estratta dal testo.
+/// Data for an entity extracted from the text.
 #[derive(Debug, Clone, Serialize)]
 pub struct ExtractedEntity {
     pub text: String,
@@ -88,7 +88,7 @@ pub struct ExtractedEntity {
     pub end_tok: usize,
 }
 
-/// Dati di una relazione tra due entità.
+/// Data of a relation between two entities.
 #[derive(Debug, Clone, Serialize)]
 pub struct ExtractedRelation {
     pub head: ExtractedEntity,
@@ -96,7 +96,7 @@ pub struct ExtractedRelation {
     pub relation_type: String,
 }
 
-/// Dati di classificazione globale sul testo in esame.
+/// Global classification data on the examined text.
 #[derive(Debug, Clone, Serialize)]
 pub struct ExtractedClassification {
     pub task_name: String,
@@ -104,7 +104,7 @@ pub struct ExtractedClassification {
     pub score: f32,
 }
 
-/// Motore di inferenza principale.
+/// Main inference engine.
 pub struct Gliner2Engine {
     encoder: Session,
     span_rep: Session,
@@ -116,15 +116,15 @@ pub struct Gliner2Engine {
 }
 
 impl Gliner2Engine {
-    /// Scarica i modelli e inizializza il motore direttamente da HuggingFace Hub.
-    /// Il download include l'header `User-Agent` come specificato in:
+    /// Downloads the models and initializes the engine directly from HuggingFace Hub.
+    /// The download includes the `User-Agent` header as specified in:
     /// https://huggingface.co/docs/hub/models-download-stats
     pub fn from_pretrained(
         repo_id: &str,
         subfolder: Option<&str>,
         model_type: ModelType,
     ) -> Result<Self> {
-        // Header come da spec HF: <library_name>/<library_version>; <language_name>/<language_version>; <os_name>/<os_version>
+        // Header as per HF specs: <library_name>/<library_version>; <language_name>/<language_version>; <os_name>/<os_version>
         let api = hf_hub::api::sync::ApiBuilder::new()
             .with_user_agent(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
             .with_user_agent("rust", "unknown")
@@ -190,7 +190,7 @@ impl Gliner2Engine {
         Self::new(config)
     }
 
-    /// Inizializza le reti neurali caricando i file ONNX e il Tokenizer.
+    /// Initializes the neural networks by loading the ONNX files and the Tokenizer.
     pub fn new(config: Gliner2Config) -> Result<Self> {
         let dir = Path::new(&config.models_dir);
         
@@ -206,39 +206,52 @@ impl Gliner2Engine {
                 return Err(anyhow::anyhow!("Neither {}_fp16.onnx nor {}_fp32.onnx exist", base_name, base_name));
             };
 
-            Session::builder()?
+            let mut builder = Session::builder()?
                 .with_optimization_level(GraphOptimizationLevel::Level3)?
-                .with_memory_pattern(false)?
-                .with_execution_providers([
+                .with_memory_pattern(false)?;
+
+            let force_cpu = std::env::var("FORCE_CPU").is_ok();
+            
+            if force_cpu {
+                builder = builder.with_execution_providers([
+                    QNNExecutionProvider::default().build(),
+                    OpenVINOExecutionProvider::default().build(),
+                    CoreMLExecutionProvider::default().build(),
+                    XNNPACKExecutionProvider::default().build(),
+                    CPUExecutionProvider::default().build()
+                ])?;
+            } else {
+                builder = builder.with_execution_providers([
                     QNNExecutionProvider::default().build(),
                     OpenVINOExecutionProvider::default().build(),
                     CoreMLExecutionProvider::default().build(),
                     CUDAExecutionProvider::default().build(),
                     XNNPACKExecutionProvider::default().build(),
                     CPUExecutionProvider::default().build()
-                ])?
-                .commit_from_file(&path)
+                ])?;
+            }
+
+            builder.commit_from_file(&path)
                 .map_err(|e| anyhow::anyhow!("Error loading {:?}: {}", path, e))
         };
 
-        // Caricamento modelli basato sul tipo di modello
+        // Load models based on model type
         let (count_pred, count_lstm) = match config.model_type {
             ModelType::PyTorch => {
-                // Modello PyTorch convertito
+                // Converted PyTorch model
                 let count_lstm = load_session("count_lstm")?;
                 let count_pred = load_session("count_pred")?;
                 (count_pred, count_lstm)
             }
             ModelType::HuggingFace => {
-                // Modello HuggingFace
+                // Direct HuggingFace export (requires distinct layers)
+                let count_lstm = load_session("count_lstm")?;
                 let count_pred = load_session("count_pred")?;
-                let count_lstm = load_session("count_lstm")
-                    .or_else(|_| load_session("count_pred"))?; // Fallback
                 (count_pred, count_lstm)
             }
         };
 
-        // Caricamento modelli comuni
+        // Load common models
         let encoder = load_session("encoder")?;
         let span_rep = load_session("span_rep")?;
         let classifier = load_session("classifier")?;
@@ -258,15 +271,15 @@ impl Gliner2Engine {
         })
     }
 
-    /// Esegue il flusso end-to-end su una stringa in input
-    /// in base agli Schema Tasks forniti.
+    /// Executes the end-to-end flow on an input string
+    /// based on the provided Schema Tasks.
     pub fn extract(
         &self, 
         text: &str, 
         tasks: &[SchemaTask]
     ) -> Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
         
-        // 1. Processo prompt + testo (creazione vettori di token)
+        // 1. Process prompt + text (token vector creation)
         let transformer = SchemaTransformer::new(self.tokenizer.clone());
         let record = transformer.transform(text, tasks)?;
         let seq_len = record.input_ids.len();
@@ -274,7 +287,7 @@ impl Gliner2Engine {
         let input_ids = Array2::from_shape_vec((1, seq_len), record.input_ids.clone())?;
         let attention_mask = Array2::from_shape_vec((1, seq_len), record.attention_mask.clone())?;
 
-        // 2. Passaggio Encoder (DeBERTa) -> Contextual Embeddings
+        // 2. Encoder pass (DeBERTa) -> Contextual Embeddings
         let mut has_attention_mask = false;
         for input in &self.encoder.inputs {
             if input.name == "attention_mask" {
@@ -295,7 +308,7 @@ impl Gliner2Engine {
         
         let enc_outputs = self.encoder.run(enc_inputs)?;
         
-        // Gestione output diversi basati sul tipo di modello
+        // Handle different outputs based on model type
         let lhs_tensor = {
             if let Some(val) = enc_outputs.get("hidden_states") {
                 val.try_extract_tensor::<f32>()?.into_owned()
@@ -324,14 +337,14 @@ impl Gliner2Engine {
         let text_embs = Array3::from_shape_vec((1, num_words, hidden_size), word_embs_data)?;
         let text_len = num_words;
 
-        // Generazione iterativa degli Span Index (alberi di combinazione)
+        // Iterative generation of Span Index (combination trees)
         let num_spans = text_len * self.config.max_width;
         let mut span_idx_data: Vec<i64> = Vec::with_capacity(num_spans * 2);
         for start in 0..text_len {
             for width in 0..self.config.max_width {
                 let end = start + width;
                 if end >= text_len {
-                    // Out-of-bounds pad per sicurezza ONNX gather node
+                    // Out-of-bounds pad for ONNX gather node safety
                     span_idx_data.push(0);
                     span_idx_data.push(0);
                 } else {
@@ -404,7 +417,7 @@ impl Gliner2Engine {
         let mut final_relations = Vec::new();
         let mut final_classifications = Vec::new();
 
-        // 4. Esecuzione Task Paralleli
+        // 4. Parallel Task Execution
         for task_map in &record.tasks {
             let labels = &task_map.labels;
             let num_labels = labels.len();
@@ -421,7 +434,7 @@ impl Gliner2Engine {
             }
             let schema_embs = Array2::from_shape_vec((num_labels, hidden_size), schema_embs_data)?;
 
-            // 4a. Ramo Classificazione (Softmax Testo-intero)
+            // 4a. Classification Branch (Full-text Softmax)
             if task_map.task_type == "classifications" {
                 let mut padded_embs = ndarray::Array4::<f32>::zeros((1, num_labels, self.config.max_width, hidden_size));
                 for m in 0..num_labels {
@@ -473,7 +486,7 @@ impl Gliner2Engine {
                 continue;
             }
 
-            // 4b. Ramo Count LSTM (Entità e Relazioni)
+            // 4b. Count LSTM Branch (Entities and Relations)
             let pc_emb_first = lhs_tensor.slice(s![0..1, task_map.prompt_tok_idx, ..]).to_owned();
             let cpred_input_name = self.count_pred.inputs[0].name.as_str();
             let cpred_inputs = ort::inputs![
@@ -503,7 +516,7 @@ impl Gliner2Engine {
             }
 
             if pred_count <= 0 {
-                continue; // Nessuna estrazione per questo task
+                continue; // No extraction needed for this task
             }
 
             let mut schema_embs_data = Vec::with_capacity(num_labels * hidden_size);
@@ -562,8 +575,9 @@ impl Gliner2Engine {
 
             let span_hidden = span_emb_shape[3];
             
-            // 5. Einsum Finale (Similarità e Probability)
+            // 5. Final Einsum (Similarity and Probability)
             if proj_hidden == span_hidden && label_max >= num_labels && count_val_max > 0 {
+                let mut all_entity_matches = Vec::new();
                 
                 for c_idx in 0..count_val_max {
                     let mut c_matches = Vec::new();
@@ -615,19 +629,17 @@ impl Gliner2Engine {
                         }
                     }
 
-                    // 6. Non-Maximum Suppression (NMS) per rimuovere overlap di span fittizi
-                    c_matches.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-                    let mut selected: Vec<ExtractedEntity> = Vec::new();
-                    for m in c_matches {
-                        let overlap = selected.iter().any(|s| !(m.end_tok <= s.start_tok || m.start_tok >= s.end_tok));
-                        if !overlap {
-                            selected.push(m);
-                        }
-                    }
-
                     if task_map.task_type == "entities" {
-                        final_entities.extend(selected);
+                        all_entity_matches.extend(c_matches);
                     } else if task_map.task_type == "relations" {
+                        c_matches.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+                        let mut selected: Vec<ExtractedEntity> = Vec::new();
+                        for m in c_matches {
+                            let overlap = selected.iter().any(|s| !(m.end_tok <= s.start_tok || m.start_tok >= s.end_tok));
+                            if !overlap {
+                                selected.push(m);
+                            }
+                        }
                         let head = selected.iter().find(|x| x.label == "head");
                         let tail = selected.iter().find(|x| x.label == "tail");
                         if let (Some(h), Some(t)) = (head, tail) {
@@ -639,8 +651,20 @@ impl Gliner2Engine {
                         }
                     }
                 }
+                
+                if task_map.task_type == "entities" {
+                    all_entity_matches.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+                    let mut selected: Vec<ExtractedEntity> = Vec::new();
+                    for m in all_entity_matches {
+                        let overlap = selected.iter().any(|s| !(m.end_tok <= s.start_tok || m.start_tok >= s.end_tok));
+                        if !overlap {
+                            selected.push(m);
+                        }
+                    }
+                    final_entities.extend(selected);
+                }
             } else {
-                 eprintln!("Errore di dimensionality Shape Mismatch su Einsum.");
+                 eprintln!("Dimensionality Shape Mismatch Error on Einsum.");
             }
         }
         

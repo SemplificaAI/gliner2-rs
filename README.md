@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-SemplificaAI/gliner2--rs-blue?style=flat-square&logo=github)](https://github.com/SemplificaAI/gliner2-rs)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Version](https://img.shields.io/badge/Version-0.2.3-brightgreen.svg)](https://github.com/SemplificaAI/gliner2-rs)
+[![Version](https://img.shields.io/badge/Version-0.3.2-brightgreen.svg)](https://github.com/SemplificaAI/gliner2-rs)
 [![Status](https://img.shields.io/badge/Status-Beta-blue.svg)](https://github.com/SemplificaAI/gliner2-rs)
 
 **Native Rust Inference Engine for GLiNER2**
