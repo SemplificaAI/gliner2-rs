@@ -29,15 +29,15 @@ This crate completely replicates the advanced sub-word tokenization and prompt-g
 
 ## 📊 Benchmark & Performance
 
-Tested on a complex text extraction task involving 4 sentences, 14 targeted entities spanning 62 classes from the `SemplificaAI/gliner2-multi-v1-onnx` model (FP16).
+Tested on complex text extraction tasks spanning up to 62 classes (metrics normalized per extracted entity to allow cross-device comparison).
 
-| Hardware | Execution Provider | Avg Time / Entity | Avg Total Time |
-| :--- | :--- | :--- | :--- |
-| **NVIDIA RTX 4090** | CUDA (FP16) | **~12.0 ms** 🚀 | ~168.11 ms |
-| **NVIDIA RTX 3090** | CUDA (FP16) | **~11.6 ms** 🚀 | ~162.46 ms |
-| **Qualcomm Snapdragon X Elite** | QNN (NPU Native) | **~22.78 ms** ✨ | ~1.16 s (51 entities) |
-| **Qualcomm Snapdragon X Elite** | CPU (ARM NEON) | **~28.62 ms** | ~1.45 s (51 entities) |
-| **AMD Ryzen 9 5900XT** (16-Core) | CPU (x86 AVX2) | **~30.16 ms** 💻 | ~422.37 ms |
+| Hardware | Execution Provider | Avg Time / Entity |
+| :--- | :--- | :--- |
+| **NVIDIA RTX 4090** | CUDA (FP16) | **~12.0 ms** 🚀 |
+| **NVIDIA RTX 3090** | CUDA (FP16) | **~11.6 ms** 🚀 |
+| **Qualcomm Snapdragon X Elite** | QNN (NPU Native) | **~22.78 ms** ✨ |
+| **Qualcomm Snapdragon X Elite** | CPU (ARM NEON) | **~28.62 ms** |
+| **AMD Ryzen 9 5900XT** (16-Core) | CPU (x86 AVX2) | **~30.16 ms** 💻 |
 
 **Takeaways:**
 - **NPU Supremacy:** The Snapdragon X Elite NPU effectively matches/beats high-end desktop x86 CPUs while operating at a fraction of the wattage.
