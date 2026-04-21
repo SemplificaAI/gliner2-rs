@@ -29,19 +29,26 @@ This crate completely replicates the advanced sub-word tokenization and prompt-g
 
 ## 📊 Benchmark & Performance
 
-Tested on complex text extraction tasks spanning up to 62 classes (metrics normalized per extracted entity to allow cross-device comparison).
+Tested on complex text extraction tasks spanning up to 62 classes. Metrics are normalized per extracted entity (15 entities) to allow precise cross-device and cross-language comparisons.
 
-| Hardware | Execution Provider | Avg Time / Entity |
-| :--- | :--- | :--- |
-| **NVIDIA RTX 4090** | CUDA (FP16) | **~12.0 ms** 🚀 |
-| **NVIDIA RTX 3090** | CUDA (FP16) | **~11.6 ms** 🚀 |
-| **Qualcomm Snapdragon X Elite** | QNN (NPU Native) | **~22.78 ms** ✨ |
-| **Qualcomm Snapdragon X Elite** | CPU (ARM NEON) | **~28.62 ms** |
-| **AMD Ryzen 9 5900XT** (16-Core) | CPU (x86 AVX2) | **~30.16 ms** 💻 |
+### 🖥️ Rust ONNX vs Python PyTorch (Desktop & Discrete GPUs)
+Comparison of a 50-run continuous benchmark on x86_64 architecture with NVIDIA GPUs.
 
-**Takeaways:**
-- **NPU Supremacy:** The Snapdragon X Elite NPU effectively matches/beats high-end desktop x86 CPUs while operating at a fraction of the wattage.
-- **GPU Scaling:** Modern discrete GPUs hover around the ~11-12ms per entity bound due to CPU-GPU host transfer latency. Native Rust implementations allow achieving zero-Python-overhead.
+| Language | Engine (Hardware) | Total Time (50 runs) | Avg Time / Sentence | Avg Time / Entity (15) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Python 3.10** | PyTorch (RTX 4090) | **~0.88 s** 🚀 | 4.40 ms | **1.17 ms** |
+| **Python 3.10** | PyTorch (RTX 3090) | **~0.90 s** 🚀 | 4.52 ms | **1.20 ms** |
+| **Rust** | ONNX Runtime CUDA (RTX 4090) | **~8.18 s** | 40.90 ms | **10.90 ms** |
+| **Rust** | ONNX Runtime CUDA (RTX 3090) | **~8.59 s** | 42.97 ms | **11.45 ms** |
+| **Python 3.10** | PyTorch (Ryzen 5900XT CPU) | **~7.26 s** | 36.33 ms | **9.68 ms** |
+| **Rust** | ONNX Runtime (Ryzen 5900XT CPU) | **~13.75 s** | 68.76 ms | **18.33 ms** |
+
+**Understanding the GPU Gap (The Fragmented ONNX Pipeline Overhead):**
+While PyTorch is astonishingly fast on discrete GPUs, the gap is not due to pure mathematical compute speed, but rather **memory bandwidth bottlenecks**. 
+Because of GLiNER2's dynamic architecture, the ONNX model had to be split into a pipeline of 5 fragmented files (`encoder`, `span_rep`, `count_pred`, `count_lstm`, `classifier`). 
+During Rust ONNX inference, intermediate tensors (often tens of Megabytes) must be constantly copied back and forth between the CPU system RAM and the GPU VRAM across the **PCIe bus** for *each* of the 5 fragments. PyTorch, on the other hand, utilizes a CUDA Caching Allocator and keeps the entire computational graph and memory strictly inside the GPU VRAM without ever returning to the CPU until the final logits are ready.
+
+However, Rust ONNX becomes highly competitive or superior on **Unified Memory Architectures** (like Apple Silicon or ARM Snapdragon) where the CPU-GPU transfer cost is zero, and it completely dominates PyTorch in **Cold Start** scenarios.
 
 ### 🐍 Rust vs Python on ARM (Snapdragon X Elite)
 Comparison between native Rust ONNX execution and standard Python PyTorch inference on the same ARM hardware.
@@ -51,7 +58,7 @@ Comparison between native Rust ONNX execution and standard Python PyTorch infere
 | **Rust** | ONNX Runtime (NPU - QNN) | `gliner2-multi-v1-onnx` | **~2.02 s** ⚡ | 41 | 0.65 s | **~16.07 ms** |
 | **Rust** | ONNX Runtime (CPU ARM64) | `gliner2-multi-v1-onnx` | **~1.89 s** | 41 | 0.68 s | **~16.58 ms** |
 | **Python 3.12** | PyTorch (CPU ARM64) | `fastino/gliner2-multi-v1` | **~9.21 s** 🐢 | 15 | 0.33 s | **~22.02 ms** |
-| **Python 3.12** | PyTorch (GLiNER - CPU ARM64) | `SemplificaAI/gliner2-multi-v1` | **~10.89 s** 🐢 | 18 | 0.35 s | **~19.41 ms** |
+| **Python 3.12** | PyTorch (GLiNER2 - CPU ARM64) | `SemplificaAI/gliner2-multi-v1` | **~10.89 s** 🐢 | 18 | 0.35 s | **~19.41 ms** |
 
 **Takeaways:**
 - **Cold Start (Startup Time):** Rust completely skips the massive Python/PyTorch loading overhead, initializing the engine and weights **>4.5x faster** (~2s vs ~9s). This makes it vastly superior for edge devices, serverless functions, or quick on-demand extractions.
