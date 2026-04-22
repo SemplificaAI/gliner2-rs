@@ -1,6 +1,6 @@
 [package]
 name = "gliner2_inference"
-version = "0.3.2"
+version = "0.4.1"
 edition = "2021"
 authors = ["Dario Finardi <git@semplifica.ai>", "Semplifica s.r.l."]
 description = "Native Rust inference engine for GLiNER2 models using ONNX Runtime."
