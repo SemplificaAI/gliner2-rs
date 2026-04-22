@@ -409,16 +409,19 @@ impl Gliner2EngineV2 {
 
             // 4c. Task classificazione — field_embs è già su CPU (cpu_out_mem sopra)
             if is_cls {
-                let field_embs_arr = oe!(
-                    field_embs_val.try_extract_tensor::<f32>().map_err(|e| anyhow::anyhow!(e)),
-                    "cls field_embs extract f32"
-                ).into_owned();
-                let hidden_size = field_embs_arr.shape()[1];
+                let fe_arr = if let Ok(t) = field_embs_val.try_extract_tensor::<f32>() {
+                    t.into_owned()
+                } else if let Ok(t) = field_embs_val.try_extract_tensor::<half::f16>() {
+                    t.into_owned().mapv(|x| x.to_f32())
+                } else {
+                    return Err(GlinerError::OomDeviceBinding("field_embs format error".into()));
+                };
+                let hidden_size = fe_arr.shape()[1];
 
-                let mut padded = Array4::<f32>::zeros((1, num_labels, self.config.max_width, hidden_size));
+                let mut padded = Array4::<half::f16>::from_elem((1, num_labels, self.config.max_width, hidden_size), half::f16::from_f32(0.0));
                 for m in 0..num_labels {
                     for d in 0..hidden_size {
-                        padded[[0, m, 0, d]] = field_embs_arr[[m, d]];
+                        padded[[0, m, 0, d]] = half::f16::from_f32(fe_arr[[m, d]]);
                     }
                 }
                 let padded_t = oe!(Tensor::from_array(padded), "cls padded tensor");
@@ -433,10 +436,13 @@ impl Gliner2EngineV2 {
                         .ok_or_else(|| GlinerError::OomDeviceBinding(
                             format!("classifier: output '{}' non trovato", cls_out_name)
                         ))?;
-                    oe!(
-                        val.try_extract_tensor::<f32>().map_err(|e| anyhow::anyhow!(e)),
-                        "classifier extract f32"
-                    ).into_owned()
+                    if let Ok(t) = val.try_extract_tensor::<f32>() {
+                        t.into_owned()
+                    } else if let Ok(t) = val.try_extract_tensor::<half::f16>() {
+                        t.into_owned().mapv(|x| x.to_f32())
+                    } else {
+                        return Err(GlinerError::OomDeviceBinding("classifier extract: type error".into()));
+                    }
                 };
 
                 let mut exp_sum = 0.0f32;
@@ -484,10 +490,13 @@ impl Gliner2EngineV2 {
                     .ok_or_else(|| GlinerError::OomDeviceBinding(
                         format!("scorer: output '{}' non trovato", sc_out_name)
                     ))?;
-                oe!(
-                    val.try_extract_tensor::<f32>().map_err(|e| anyhow::anyhow!(e)),
-                    "scorer extract f32"
-                ).into_owned()
+                if let Ok(t) = val.try_extract_tensor::<f32>() {
+                    t.into_owned()
+                } else if let Ok(t) = val.try_extract_tensor::<half::f16>() {
+                    t.into_owned().mapv(|x| x.to_f32())
+                } else {
+                    return Err(GlinerError::OomDeviceBinding("scorer extract: type error".into()));
+                }
             };
             // scores: [MAX_COUNT, num_words, max_width, M]  (sigmoid già applicato nell'ONNX)
 
@@ -679,12 +688,12 @@ impl Gliner2EngineV2 {
             // 4c. Task classificazione: usa classifier invece di scorer
             if task_map.task_type == "classifications" {
                 let _span_emb_shape = span_embs.shape();
-                let mut padded = ndarray::Array4::<f32>::zeros(
-                    (1, num_labels, self.config.max_width, hidden_size)
+                let mut padded = ndarray::Array4::<half::f16>::from_elem(
+                    (1, num_labels, self.config.max_width, hidden_size), half::f16::from_f32(0.0)
                 );
                 for m in 0..num_labels {
                     for d in 0..hidden_size {
-                        padded[[0, m, 0, d]] = field_embs[[m, d]];
+                        padded[[0, m, 0, d]] = half::f16::from_f32(field_embs[[m, d]]);
                     }
                 }
                 let cls_out = self.classifier.run(ort::inputs![

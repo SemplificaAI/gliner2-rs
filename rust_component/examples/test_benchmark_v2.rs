@@ -1,37 +1,42 @@
-use gliner2_inference::{Gliner2EngineV2, Gliner2Config, SchemaTask, ModelType};
+use gliner2_inference::*;
+use std::time::Instant;
+use std::env;
 
 fn main() -> anyhow::Result<()> {
-    ort::init().with_name("GLiNER2_Engine_V2").commit()?;
-
-    let models_dir = "models/gliner2-multi-v1-onnx-v2";
+    ort::init().with_name("GLiNER2_Bench_V2").commit()?;
+    
+    let force_cpu = env::var("FORCE_CPU").is_ok();
+    println!("GLiNER2 RUST NATIVE - Benchmark V2 (Force CPU: {})", force_cpu);
     
     let config = Gliner2Config {
-        models_dir: models_dir.to_string(),
+        models_dir: "models/gliner2-multi-v1-onnx-v2".to_string(),
         max_width: 8,
         model_type: ModelType::PyTorch,
     };
+    let engine = Gliner2Engine::new(config)?;
 
-    println!("==================================================");
-    println!("GLiNER2 RUST NATIVE - Benchmark V2 (IOBinding)");
-    println!("==================================================");
+    let text = "Il signor Mario Rossi vive a Roma e lavora per Semplifica s.r.l. dal 2020. \
+    L'azienda, fondata da Giuseppe Verdi, ha recentemente aperto una nuova sede a Milano, vicino al Duomo. \
+    Nel 2023, il fatturato è cresciuto del 45%, spinto dalle nuove tecnologie di intelligenza artificiale. \
+    La dottoressa Francesca Bianchi, CEO della divisione europea, ha tenuto una conferenza a Parigi \
+    il 15 Maggio 2024, annunciando partnership strategiche con Microsoft e Google.";
 
-    let engine = Gliner2EngineV2::new(config)?;
-
-    let text = "La dottoressa Giulia Bianchi, nata a Milano il 15/05/1985, è stata recentemente assunta come Chief Technology Officer presso InnovaTech S.p.A., un'azienda leader con sede a Torino. Il suo indirizzo email è giulia.bianchi@innovatech.it. Giulia è estremamente felice e soddisfatta del suo nuovo ambiente lavorativo e non vede l'ora di iniziare!";
+    // Estimated number of sentences in the text (4 logical sentences)
+    let num_sentences = 4;
 
     let tasks = vec![
         SchemaTask::Entities(vec![
-            "person".to_string(),
-            "location".to_string(),
-            "organization".to_string(),
-            "date".to_string(),
-            "role".to_string(),
-            "email".to_string(),
+            "person".to_string(), 
+            "organization".to_string(), 
+            "location".to_string(), 
+            "date".to_string(), 
+            "metric".to_string(), 
+            "technology".to_string(), 
+            "role".to_string()
         ]),
-        SchemaTask::Classifications("sentiment".to_string(), vec!["positive".to_string(), "negative".to_string()]),
-        SchemaTask::Relations("works_for".to_string(), vec!["head".to_string(), "tail".to_string()]),
     ];
 
+    // Warm-up run to initialize sessions and allocate memory
     println!("Warm-up (1 run)...");
     let (entities, _, _) = engine.extract(text, &tasks)?;
     let num_entities = entities.len() as u32;
@@ -46,19 +51,22 @@ fn main() -> anyhow::Result<()> {
     let mut total_duration = std::time::Duration::new(0, 0);
 
     for i in 1..=num_runs {
-        let start = std::time::Instant::now();
+        let start = Instant::now();
         let _ = engine.extract(text, &tasks)?;
         let duration = start.elapsed();
         total_duration += duration;
-        if i % 10 == 0 || i == 1 {
+        
+        if i == 1 || i % 10 == 0 {
             println!("  [Run {}/{}] completed in {:?}", i, num_runs, duration);
         }
     }
 
     let avg_duration = total_duration / num_runs as u32;
+    let time_per_sentence = avg_duration / num_sentences;
     let time_per_entity = if num_entities > 0 { avg_duration / num_entities } else { std::time::Duration::new(0, 0) };
 
     println!("⏱️ Total Avg Time: {:?}", avg_duration);
+    println!("⏱️ Avg Time per Sentence: {:?}", time_per_sentence);
     println!("⏱️ Avg Time per Entity ({} extracted): {:?}", num_entities, time_per_entity);
 
     Ok(())
