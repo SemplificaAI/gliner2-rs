@@ -17,7 +17,7 @@ This crate completely replicates the advanced sub-word tokenization and prompt-g
 ## 🚀 Features
 
 ### ⚡ What's New in 0.4.1 (V2 IOBinding Engine)
-- **Zero-Copy PCIe bypass**: Replaces CPU manipulations with `Gather`, `ArgMax`, and `MatMul` operations fused directly into the ONNX graphs. Data now stays inside GPU/NPU VRAM, speeding up RTX performance by ~30%.
+- **Zero-Copy PCIe bypass**: Replaces CPU manipulations with `Gather`, `ArgMax`, and `MatMul` operations fused directly into the ONNX graphs. Data now stays inside GPU/NPU VRAM, speeding up performance by ~30% (currently tested on NVIDIA RTX GPUs and AMD Ryzen CPUs).
 - **Automatic Engine Facade**: `Gliner2Engine` acts as an intelligent wrapper. It detects whether the model folder contains V1 or V2 files, automatically switching to the optimal execution pipeline. **No code changes are required** to use V2!
 - **New V2 ONNX Exporter**: We provide `export_gliner2_onnx_fragments_v2.py` which automatically generates `fp32`, `fp16`, and `fp16_iobinding` (Full IO Types) variants of the fusions.
 
@@ -190,7 +190,7 @@ This project was developed by Dario Finardi at Semplifica s.r.l.
 
 ## [v0.4.1] - 2026-04-22
 ### ⚡ V2 Zero-Copy IOBinding Architecture
-- **Performance**: Up to 30% reduction in inference latency on discrete GPUs.
+- **Performance**: Up to 30% reduction in inference latency (currently tested and verified on NVIDIA RTX GPUs and AMD Ryzen CPUs).
 - **ONNX Graph Fusion**: Ported previously CPU-bound operations (`Gather` for Token/Schema representations, `ArgMax` for prediction counts, and `MatMul` replacing Einsum for the Scorer) directly into the ONNX session.
 - **IOBinding Bypass**: Data now remains fully encapsulated within the VRAM buffer avoiding expensive PCIe bus transactions.
 - **Facade Auto-detect**: Built an intelligent `Gliner2Engine` wrapper to automatically detect whether to use V1 CPU-slicing logic or V2 IOBinding without breaking changes to the consumer code.
