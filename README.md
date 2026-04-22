@@ -51,7 +51,7 @@ Comparison of a 50-run continuous benchmark on x86_64 architecture with NVIDIA G
 | **Python 3.10** | PyTorch (Ryzen 5900XT CPU) | **~7.26 s** | 36.33 ms | **9.68 ms** |
 | **Rust (V1)** | ONNX Runtime (Ryzen 5900XT CPU) | **~13.75 s** | 68.76 ms | **18.33 ms** |
 
-> *( * ) **V2 IOBinding Engine (Preliminary):** The new V2 implementation eliminates the PCIe bottleneck by fusing operations (`Gather`, `ArgMax`, `MatMul`) inside the ONNX graph and keeping tensors entirely in VRAM (Zero-Copy) using ORT's `IoBinding`. This drastically drops the execution time. These results are currently preliminary and require further testing on different hardware architectures (e.g. NPU, CoreML, ROCm) to ensure stability.*
+> *( * ) **V2 IOBinding Engine:** The new V2 implementation eliminates the PCIe bottleneck by fusing operations (`Gather`, `ArgMax`, `MatMul`) inside the ONNX graph and keeping tensors entirely in VRAM (Zero-Copy) using ORT's `IoBinding`. This drastically drops the execution time.
 
 
 **Understanding the GPU Gap: Why is PyTorch still faster than V2?**
