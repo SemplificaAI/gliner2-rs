@@ -120,7 +120,7 @@ pub struct ExtractedClassification {
 }
 
 /// Main inference engine.
-pub struct Gliner2Engine {
+pub struct Gliner2EngineV1 {
     encoder: Session,
     span_rep: Session,
     count_lstm: Session,
@@ -131,7 +131,7 @@ pub struct Gliner2Engine {
     pub execution_mode: RwLock<ExecutionMode>,
 }
 
-impl Gliner2Engine {
+impl Gliner2EngineV1 {
     /// Downloads the models and initializes the engine directly from HuggingFace Hub.
     /// The download includes the `User-Agent` header as specified in:
     /// https://huggingface.co/docs/hub/models-download-stats
@@ -733,4 +733,55 @@ impl Gliner2Engine {
 pub enum ExecutionMode {
     IoBinding, // Modalita' 2
     Standard,  // Modalita' 1 (Fallback)
+}
+
+/// Universal Inference Engine for GLiNER2
+/// Automatically detects whether the models are V1 (Standard) or V2 (IOBinding)
+/// based on the contents of the model directory, and routes inference accordingly.
+pub enum Gliner2Engine {
+    V1(Gliner2EngineV1),
+    V2(crate::lib_v2::Gliner2EngineV2),
+}
+
+impl Gliner2Engine {
+    /// Downloads models from HuggingFace. Currently defaults to V1 models.
+    pub fn from_pretrained(
+        repo_id: &str,
+        subfolder: Option<&str>,
+        model_type: ModelType,
+    ) -> Result<Self> {
+        let engine = Gliner2EngineV1::from_pretrained(repo_id, subfolder, model_type)?;
+        Ok(Gliner2Engine::V1(engine))
+    }
+
+    /// Initializes the neural networks by loading the ONNX files and the Tokenizer.
+    /// Automatically selects V1 or V2 engine based on the presence of V2 specific files.
+    pub fn new(config: Gliner2Config) -> Result<Self> {
+        let dir = Path::new(&config.models_dir);
+        
+        let is_v2 = dir.join("token_gather_fp16.onnx").exists() 
+                 || dir.join("token_gather_fp32.onnx").exists()
+                 || dir.join("token_gather_fp16_iobinding.onnx").exists();
+
+        if is_v2 {
+            println!("[GLiNER2 Autodetect] Modello V2 (Fuso) trovato. Avvio motore IOBinding...");
+            Ok(Gliner2Engine::V2(crate::lib_v2::Gliner2EngineV2::new(config)?))
+        } else {
+            println!("[GLiNER2 Autodetect] Modello V1 (Standard) trovato. Avvio motore CPU-slicing...");
+            Ok(Gliner2Engine::V1(Gliner2EngineV1::new(config)?))
+        }
+    }
+
+    /// Executes the end-to-end flow on an input string
+    /// based on the provided Schema Tasks.
+    pub fn extract(
+        &self, 
+        text: &str, 
+        tasks: &[SchemaTask]
+    ) -> anyhow::Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
+        match self {
+            Gliner2Engine::V1(engine) => engine.extract(text, tasks),
+            Gliner2Engine::V2(engine) => engine.extract(text, tasks),
+        }
+    }
 }
