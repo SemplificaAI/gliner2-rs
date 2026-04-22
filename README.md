@@ -65,18 +65,18 @@ While V2 IOBinding successfully eliminates the PCIe data transfer bottleneck (te
 ### 🐍 Rust vs Python on ARM (Snapdragon X Elite)
 Comparison between native Rust ONNX execution and standard Python PyTorch inference on the same ARM hardware.
 
-| Environment | Backend (Hardware) | Model | Startup Time | Entities Extracted | Avg Time (Total) | Avg Time / Entity |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Rust (V1)** | ONNX Runtime (NPU - QNN) | `gliner2-multi-v1-onnx` | **~2.02 s** | 41 | 0.65 s | **~16.07 ms** |
-| **Rust (V2)* ** | ONNX Runtime (NPU - QNN) | `fp16_v2` | **~2.02 s** ⚡ | 41 | 0.55 s | **~13.66 ms** |
-| **Rust (V1)** | ONNX Runtime (CPU ARM64) | `gliner2-multi-v1-onnx` | **~1.89 s** | 41 | 0.68 s | **~16.58 ms** |
-| **Rust (V2)* ** | ONNX Runtime (CPU ARM64) | `fp32_v2` | **~1.89 s** | 41 | 0.58 s | **~14.09 ms** |
-| **Python 3.12** | PyTorch (CPU ARM64) | `fastino/gliner2-multi-v1` | **~9.21 s** 🐢 | 15 | 0.33 s | **~22.02 ms** |
-| **Python 3.12** | PyTorch (GLiNER2 - CPU ARM64) | `SemplificaAI/gliner2-multi-v1` | **~10.89 s** 🐢 | 18 | 0.35 s | **~19.41 ms** |
+| Environment | Backend (Hardware) | Model | Startup Time | Avg Time (Total) | Avg Time / Entity |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Rust (V1)** | ONNX Runtime (NPU - QNN) | `gliner2-multi-v1-onnx` | **~2.02 s** | 0.65 s | **~16.07 ms** |
+| **Rust (V2)* ** | ONNX Runtime (NPU - QNN) | `fp16_v2` | **~2.02 s** ⚡ | 0.55 s | **~13.66 ms** |
+| **Rust (V1)** | ONNX Runtime (CPU ARM64) | `gliner2-multi-v1-onnx` | **~1.89 s** | 0.68 s | **~16.58 ms** |
+| **Rust (V2)* ** | ONNX Runtime (CPU ARM64) | `fp32_v2` | **~1.89 s** | 0.58 s | **~14.09 ms** |
+| **Python 3.12** | PyTorch (CPU ARM64) | `fastino/gliner2-multi-v1` | **~9.21 s** 🐢 | 0.33 s | **~22.02 ms** |
+| **Python 3.12** | PyTorch (GLiNER2 - CPU ARM64) | `SemplificaAI/gliner2-multi-v1` | **~10.89 s** 🐢 | 0.35 s | **~19.41 ms** |
 
 **Takeaways:**
 - **Cold Start (Startup Time):** Rust completely skips the massive Python/PyTorch loading overhead, initializing the engine and weights **>4.5x faster** (~2s vs ~9s). This makes it vastly superior for edge devices, serverless functions, or quick on-demand extractions.
-- **Inference Speed:** Rust ONNX natively leverages the NPU (which PyTorch currently struggles to target effectively on Windows on ARM), gaining a solid speed advantage even when extracting 4x more entities.
+- **Inference Speed:** Rust ONNX natively leverages the NPU (which PyTorch currently struggles to target effectively on Windows on ARM), gaining a solid speed advantage.
 
 ---
 
