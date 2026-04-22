@@ -48,12 +48,13 @@ Comparison of a 50-run continuous benchmark on x86_64 architecture with NVIDIA G
 > *( * ) **V2 IOBinding Engine (Preliminary):** The new V2 implementation eliminates the PCIe bottleneck by fusing operations (`Gather`, `ArgMax`, `MatMul`) inside the ONNX graph and keeping tensors entirely in VRAM (Zero-Copy) using ORT's `IoBinding`. This drastically drops the execution time. These results are currently preliminary and require further testing on different hardware architectures (e.g. NPU, CoreML, ROCm) to ensure stability.*
 
 
-**Understanding the GPU Gap (The Fragmented ONNX Pipeline Overhead):**
-While PyTorch is astonishingly fast on discrete GPUs, the gap is not due to pure mathematical compute speed, but rather **memory bandwidth bottlenecks**. 
-Because of GLiNER2's dynamic architecture, the ONNX model had to be split into a pipeline of 5 fragmented files (`encoder`, `span_rep`, `count_pred`, `count_lstm`, `classifier`). 
-During Rust ONNX inference, intermediate tensors (often tens of Megabytes) must be constantly copied back and forth between the CPU system RAM and the GPU VRAM across the **PCIe bus** for *each* of the 5 fragments. PyTorch, on the other hand, utilizes a CUDA Caching Allocator and keeps the entire computational graph and memory strictly inside the GPU VRAM without ever returning to the CPU until the final logits are ready.
+**Understanding the GPU Gap: Why is PyTorch still faster than V2?**
+While V2 IOBinding successfully eliminates the PCIe data transfer bottleneck (tensors now stay in VRAM), Python/PyTorch remains ~6x faster on discrete GPUs. This is due to the **Fragmentation Penalty**:
+1. **Kernel Launch & Orchestration Overhead:** Because GLiNER2's architecture relies on dynamic loops (e.g. iterating over an unknown number of schema tasks and varying predicted entity counts), it cannot be exported as a single monolithic ONNX graph. It must be split into 8 separate ONNX sessions. The Rust host CPU must orchestrate the execution of these 8 fragments sequentially. Even though the *data* stays in VRAM, the *control flow* (calling `.run()` multiple times per sentence) incurs severe CUDA kernel launch overhead and forces continuous CPU-GPU synchronization.
+2. **Lack of Global Graph Fusion:** PyTorch executes the entire model inside a single unified context, allowing its backend to fuse kernels across the entire architecture. ONNX Runtime can only optimize and fuse operations within the hard boundaries of each individual fragment.
+3. **Dynamic Shapes:** ONNX Runtime achieves peak performance (e.g., via TensorRT) with static shapes. GLiNER2 is highly dynamic (varying sequence lengths, changing number of entities), which prevents ORT from locking in optimal execution paths—a scenario where PyTorch's native dynamic execution naturally excels.
 
-However, Rust ONNX becomes highly competitive or superior on **Unified Memory Architectures** (like Apple Silicon or ARM Snapdragon) where the CPU-GPU transfer cost is zero, and it completely dominates PyTorch in **Cold Start** scenarios.
+*Conclusion:* Rust ONNX V2 represents the upper limit of optimization for a fragmented pipeline. While PyTorch wins on raw continuous throughput on discrete GPUs, Rust ONNX completely dominates PyTorch in **Cold Start** scenarios (loading in ~2s vs ~10s) and is the absolute winner for **Unified Memory Architectures** (Apple Silicon / ARM Snapdragon NPU) and edge deployments.
 
 ### 🐍 Rust vs Python on ARM (Snapdragon X Elite)
 Comparison between native Rust ONNX execution and standard Python PyTorch inference on the same ARM hardware.
