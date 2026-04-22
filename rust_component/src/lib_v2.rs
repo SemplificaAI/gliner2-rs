@@ -74,7 +74,78 @@ pub struct Gliner2EngineV2 {
     pub execution_mode: RwLock<ExecutionMode>,
 }
 
+
 impl Gliner2EngineV2 {
+    /// Scarica i modelli V2 da Hugging Face
+    pub fn from_pretrained(
+        repo_id: &str,
+        subfolder: Option<&str>,
+        model_type: crate::ModelType,
+    ) -> Result<Self> {
+        let api = hf_hub::api::sync::ApiBuilder::new()
+            .with_user_agent(env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"))
+            .with_user_agent("rust", "unknown")
+            .with_user_agent(std::env::consts::OS, "unknown")
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to initialize HF API: {}", e))?;
+
+        let repo = api.model(repo_id.to_string());
+
+        let is_fp16 = subfolder.unwrap_or("").contains("16");
+        let suffix = if is_fp16 { "_fp16.onnx" } else { "_fp32.onnx" };
+        let suffix_io = if is_fp16 { "_fp16_iobinding.onnx" } else { "_fp32.onnx" }; // Note: V2 fp32 doesn't have iobinding suffix typically, but we will download both if fp16
+
+        let mut files_to_download = vec![
+            "tokenizer.json".to_string(),
+        ];
+        
+        let bases = [
+            "encoder",
+            "token_gather",
+            "span_rep",
+            "schema_gather",
+            "count_pred_argmax",
+            "count_lstm_fixed",
+            "scorer",
+            "classifier"
+        ];
+        
+        for base in bases.iter() {
+            files_to_download.push(format!("{}{}", base, suffix));
+            if is_fp16 {
+                files_to_download.push(format!("{}{}", base, suffix_io));
+            }
+        }
+
+        let mut models_dir = std::path::PathBuf::new();
+
+        for file in files_to_download {
+            let path_in_repo = match subfolder {
+                Some(sub) => format!("{}/{}", sub, file),
+                None => file.clone(),
+            };
+
+            println!("Downloading/verifying {}...", path_in_repo);
+            let local_path = repo.get(&path_in_repo).map_err(|e| {
+                anyhow::anyhow!("Failed to download {}: {}", path_in_repo, e)
+            })?;
+
+            if models_dir.as_os_str().is_empty() {
+                if let Some(parent) = local_path.parent() {
+                    models_dir = parent.to_path_buf();
+                }
+            }
+        }
+
+        let config = Gliner2Config {
+            models_dir: models_dir.to_string_lossy().to_string(),
+            max_width: 8,
+            model_type,
+        };
+
+        Self::new(config)
+    }
+
     // ── Costruzione ──────────────────────────────────────────────────────────
 
     /// Carica l'engine dalla directory dei modelli v2.

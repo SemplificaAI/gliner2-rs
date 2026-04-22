@@ -750,8 +750,14 @@ impl Gliner2Engine {
         subfolder: Option<&str>,
         model_type: ModelType,
     ) -> Result<Self> {
-        let engine = Gliner2EngineV1::from_pretrained(repo_id, subfolder, model_type)?;
-        Ok(Gliner2Engine::V1(engine))
+        let is_v2 = subfolder.unwrap_or("").contains("v2");
+        if is_v2 {
+            let engine = crate::lib_v2::Gliner2EngineV2::from_pretrained(repo_id, subfolder, model_type)?;
+            Ok(Gliner2Engine::V2(engine))
+        } else {
+            let engine = Gliner2EngineV1::from_pretrained(repo_id, subfolder, model_type)?;
+            Ok(Gliner2Engine::V1(engine))
+        }
     }
 
     /// Initializes the neural networks by loading the ONNX files and the Tokenizer.
