@@ -40,9 +40,11 @@ The ONNX conversion, combined with the Rust native engine (`ort` binding), allow
 | **NVIDIA RTX 3090** | CUDA (V2 IOBinding) | `fp16_v2` | **~7.2 ms** ⚡ |
 | **NVIDIA RTX 4090** | CUDA (V1 Standard) | `fp16` | **~12.0 ms** 🚀 |
 | **NVIDIA RTX 3090** | CUDA (V1 Standard) | `fp16` | **~11.6 ms** 🚀 |
-| **Qualcomm Snapdragon X Elite** | QNN (NPU Native) | `fp16` | **~22.78 ms** ✨ |
+| **Qualcomm Snapdragon X Elite** | QNN (V2 NPU Native) | `fp16_v2` | **~19.36 ms** ✨ |
+| **Qualcomm Snapdragon X Elite** | QNN (V1 NPU Native) | `fp16` | **~22.78 ms** |
 | **AMD Ryzen 9 5900XT** (16-Core) | CPU (x86 AVX2) | `fp32_v2` | **~20.6 ms** 💻 |
-| **Qualcomm Snapdragon X Elite** | CPU (ARM NEON) | `fp32` | **~28.62 ms** |
+| **Qualcomm Snapdragon X Elite** | CPU (V2 ARM NEON) | `fp32_v2` | **~24.32 ms** |
+| **Qualcomm Snapdragon X Elite** | CPU (V1 ARM NEON) | `fp32` | **~28.62 ms** |
 
 ## 📦 Usage in Rust
 
