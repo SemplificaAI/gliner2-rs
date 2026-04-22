@@ -12,7 +12,7 @@ repository = "https://github.com/SemplificaAI/gliner2-rs"
 ndarray = "0.16.1"
 
 # Binding ufficiale Rust per ONNX Runtime (versione moderna)
-ort = { version = "2.0.0-rc.9", features = ["load-dynamic", "qnn", "cuda", "coreml", "openvino", "directml", "tensorrt", "xnnpack", "half"] }
+ort = { version = "2.0.0-rc.9", features = ["load-dynamic", "qnn", "cuda", "rocm", "coreml", "openvino", "directml", "tensorrt", "xnnpack", "half"] }
 
 # Tokenizer HuggingFace puro Rust (velocissimo, zero overhead Python)
 tokenizers = "0.19.1"

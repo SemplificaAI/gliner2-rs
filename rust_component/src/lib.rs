@@ -14,10 +14,21 @@
 
 //! `gliner2-rs` is a high-performance native Rust inference engine for GLiNER2 models.
 //!
-//! It enables Zero-Python execution of complex Natural Language Processing tasks 
-//! (Entities, Relations, Classifications) using ONNX Runtime (with CPU and CUDA GPU support).
+//! It enables Zero-Python execution of complex Natural Language Processing tasks
+//! (Entities, Relations, Classifications) using ONNX Runtime.
+//!
+//! Supported execution providers (in priority order, first available wins):
+//!   - QNN  – Qualcomm AI Engine / Hexagon NPU (X Elite, Snapdragon 8cx, ecc.)
+//!   - OpenVINO – Intel CPU/GPU/VPU
+//!   - CoreML  – Apple Neural Engine + GPU (macOS, iOS)
+//!   - CUDA    – NVIDIA GPU
+//!   - ROCm    – AMD GPU (Linux + ROCm stack)
+//!   - XNNPACK – CPU accelerato (ARM NEON, x86 AVX2)
+//!   - CPU     – fallback generico
 
 pub mod processor;
+pub mod lib_v2;
+pub use lib_v2::Gliner2EngineV2;
 
 use anyhow::Result;
 pub mod error;
@@ -26,7 +37,8 @@ use ndarray::{Array0, Array2, Array3, s};
 use ort::{
     execution_providers::{
         CPUExecutionProvider, CUDAExecutionProvider, CoreMLExecutionProvider,
-        OpenVINOExecutionProvider, QNNExecutionProvider, XNNPACKExecutionProvider,
+        OpenVINOExecutionProvider, QNNExecutionProvider, ROCmExecutionProvider,
+        XNNPACKExecutionProvider,
     },
     session::{builder::GraphOptimizationLevel, Session},
     value::{Tensor, Value, DynValueTypeMarker},
@@ -222,7 +234,7 @@ impl Gliner2Engine {
                     OpenVINOExecutionProvider::default().build(),
                     CoreMLExecutionProvider::default().build(),
                     XNNPACKExecutionProvider::default().build(),
-                    CPUExecutionProvider::default().build()
+                    CPUExecutionProvider::default().build(),
                 ])?;
             } else {
                 builder = builder.with_execution_providers([
@@ -230,8 +242,9 @@ impl Gliner2Engine {
                     OpenVINOExecutionProvider::default().build(),
                     CoreMLExecutionProvider::default().build(),
                     CUDAExecutionProvider::default().build(),
+                    ROCmExecutionProvider::default().build(),
                     XNNPACKExecutionProvider::default().build(),
-                    CPUExecutionProvider::default().build()
+                    CPUExecutionProvider::default().build(),
                 ])?;
             }
 
