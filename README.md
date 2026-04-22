@@ -34,14 +34,19 @@ Tested on complex text extraction tasks spanning up to 62 classes. Metrics are n
 ### 🖥️ Rust ONNX vs Python PyTorch (Desktop & Discrete GPUs)
 Comparison of a 50-run continuous benchmark on x86_64 architecture with NVIDIA GPUs.
 
-| Language | Engine (Hardware) | Total Time (50 runs) | Avg Time / Sentence | Avg Time / Entity (15) |
+| Language | Engine (Hardware) | Total Time (50 runs) | Avg Time / Sentence | Avg Time / Entity (15-17) |
 | :--- | :--- | :--- | :--- | :--- |
 | **Python 3.10** | PyTorch (RTX 4090) | **~0.88 s** 🚀 | 4.40 ms | **1.17 ms** |
 | **Python 3.10** | PyTorch (RTX 3090) | **~0.90 s** 🚀 | 4.52 ms | **1.20 ms** |
-| **Rust** | ONNX Runtime CUDA (RTX 4090) | **~8.18 s** | 40.90 ms | **10.90 ms** |
-| **Rust** | ONNX Runtime CUDA (RTX 3090) | **~8.59 s** | 42.97 ms | **11.45 ms** |
+| **Rust (V1)** | ONNX Runtime CUDA (RTX 4090) | **~8.18 s** | 40.90 ms | **10.90 ms** |
+| **Rust (V2)* ** | ONNX Runtime CUDA (RTX 4090) | **~5.91 s** ⚡ | 29.59 ms | **6.96 ms** |
+| **Rust (V1)** | ONNX Runtime CUDA (RTX 3090) | **~8.59 s** | 42.97 ms | **11.45 ms** |
+| **Rust (V2)* ** | ONNX Runtime CUDA (RTX 3090) | **~6.13 s** ⚡ | 30.68 ms | **7.21 ms** |
 | **Python 3.10** | PyTorch (Ryzen 5900XT CPU) | **~7.26 s** | 36.33 ms | **9.68 ms** |
-| **Rust** | ONNX Runtime (Ryzen 5900XT CPU) | **~13.75 s** | 68.76 ms | **18.33 ms** |
+| **Rust (V1)** | ONNX Runtime (Ryzen 5900XT CPU) | **~13.75 s** | 68.76 ms | **18.33 ms** |
+
+> *( * ) **V2 IOBinding Engine (Preliminary):** The new V2 implementation eliminates the PCIe bottleneck by fusing operations (`Gather`, `ArgMax`, `MatMul`) inside the ONNX graph and keeping tensors entirely in VRAM (Zero-Copy) using ORT's `IoBinding`. This drastically drops the execution time. These results are currently preliminary and require further testing on different hardware architectures (e.g. NPU, CoreML, ROCm) to ensure stability.*
+
 
 **Understanding the GPU Gap (The Fragmented ONNX Pipeline Overhead):**
 While PyTorch is astonishingly fast on discrete GPUs, the gap is not due to pure mathematical compute speed, but rather **memory bandwidth bottlenecks**. 
