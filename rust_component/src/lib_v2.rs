@@ -92,8 +92,18 @@ impl Gliner2EngineV2 {
         let repo = api.model(repo_id.to_string());
 
         let is_fp16 = subfolder.unwrap_or("").contains("16");
-        let suffix = if is_fp16 { "_fp16.onnx" } else { "_fp32.onnx" };
-        let suffix_io = if is_fp16 { "_fp16_iobinding.onnx" } else { "_fp32.onnx" }; // Note: V2 fp32 doesn't have iobinding suffix typically, but we will download both if fp16
+        
+        // Optimize download size: download only IOBinding files for CUDA/ROCm platforms, 
+        // and standard FP16 files for CoreML (Apple) platforms or if explicitly requested.
+        let is_apple = std::env::consts::OS == "macos" || std::env::consts::OS == "ios";
+        let no_iobinding = std::env::var("GLINER2_NO_IOBINDING").is_ok();
+        let prefer_iobinding = is_fp16 && !is_apple && !no_iobinding;
+
+        let suffix = if is_fp16 { 
+            if prefer_iobinding { "_fp16_iobinding.onnx" } else { "_fp16.onnx" }
+        } else { 
+            "_fp32.onnx" 
+        };
 
         let mut files_to_download = vec![
             "tokenizer.json".to_string(),
@@ -112,9 +122,6 @@ impl Gliner2EngineV2 {
         
         for base in bases.iter() {
             files_to_download.push(format!("{}{}", base, suffix));
-            if is_fp16 {
-                files_to_download.push(format!("{}{}", base, suffix_io));
-            }
         }
 
         let mut models_dir = std::path::PathBuf::new();
