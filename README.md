@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-SemplificaAI/gliner2--rs-blue?style=flat-square&logo=github)](https://github.com/SemplificaAI/gliner2-rs)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Version](https://img.shields.io/badge/Version-0.4.1-brightgreen.svg)](https://github.com/SemplificaAI/gliner2-rs)
+[![Version](https://img.shields.io/badge/Version-0.4.2-brightgreen.svg)](https://github.com/SemplificaAI/gliner2-rs)
 [![Status](https://img.shields.io/badge/Status-Beta-blue.svg)](https://github.com/SemplificaAI/gliner2-rs)
 
 **Native Rust Inference Engine for GLiNER2**
@@ -16,9 +16,10 @@ This crate completely replicates the advanced sub-word tokenization and prompt-g
 
 ## 🚀 Features
 
-### ⚡ What's New in 0.4.1 (V2 IOBinding Engine)
+### ⚡ What's New in 0.4.2 (V2 IOBinding Engine & Smart Downloads)
 - **Zero-Copy PCIe bypass**: Replaces CPU manipulations with `Gather`, `ArgMax`, and `MatMul` operations fused directly into the ONNX graphs. Data now stays inside GPU/NPU VRAM, speeding up performance by ~30% (currently tested on NVIDIA RTX GPUs and AMD Ryzen CPUs).
 - **Automatic Engine Facade**: `Gliner2Engine` acts as an intelligent wrapper. It detects whether the model folder contains V1 or V2 files, automatically switching to the optimal execution pipeline. **No code changes are required** to use V2!
+- **Smart HF Downloader**: `Gliner2Engine::from_pretrained` now detects your OS. On CUDA/ROCm platforms it downloads the `_iobinding` variants, while on macOS (Apple Silicon/CoreML) it safely downloads the standard `_fp16` fallback. This **halves bandwidth and disk usage**!
 - **New V2 ONNX Exporter**: We provide `export_gliner2_onnx_fragments_v2.py` which automatically generates `fp32`, `fp16`, and `fp16_iobinding` (Full IO Types) variants of the fusions.
 
 ### Key Features
@@ -187,6 +188,13 @@ This project was developed by Dario Finardi at Semplifica s.r.l.
 
 ## [v0.2.3]
 - Initial functional release supporting basic Pytorch-converted fragments with local paths.
+
+## [v0.4.2] - 2026-04-22
+### 🚀 Smart Downloads & HF Ecosystem
+- **OS-Aware Model Downloader**: `from_pretrained` logic has been heavily optimized. It now parses `std::env::consts::OS` to selectively download only the `_fp16_iobinding` variants for Linux/Windows (CUDA/ROCm) and standard `_fp16` for macOS (CoreML). This drops the V2 download size from 1.2GB to ~600MB.
+- **Manual IOBinding Override**: Introduced `GLINER2_NO_IOBINDING=1` environment variable to force fallback to standard FP16 execution even on supported hardware.
+- **Hugging Face Model Card**: Generated the optimal `README_HF.md` to properly showcase the V2 capabilities on the Hub.
+- **Automated V2 Uploads**: Included `upload_v2_to_hf.py` inside `onnx_conversion_scripts` to streamline uploading the double V2 variants (`fp16_v2` and `fp32_v2`) to the Hugging Face ecosystem.
 
 ## [v0.4.1] - 2026-04-22
 ### ⚡ V2 Zero-Copy IOBinding Architecture
