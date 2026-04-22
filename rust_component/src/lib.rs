@@ -20,6 +20,8 @@
 pub mod processor;
 
 use anyhow::Result;
+pub mod error;
+pub use error::GlinerError;
 use ndarray::{Array0, Array2, Array3, s};
 use ort::{
     execution_providers::{
@@ -31,6 +33,7 @@ use ort::{
 };
 use tokenizers::Tokenizer;
 use std::path::Path;
+use std::sync::RwLock;
 use serde::Serialize;
 
 use processor::SchemaTransformer;
@@ -113,6 +116,7 @@ pub struct Gliner2Engine {
     classifier: Session,
     tokenizer: Tokenizer,
     config: Gliner2Config,
+    pub execution_mode: RwLock<ExecutionMode>,
 }
 
 impl Gliner2Engine {
@@ -267,17 +271,56 @@ impl Gliner2Engine {
             count_pred, 
             classifier, 
             tokenizer, 
-            config 
+            config,
+            execution_mode: RwLock::new(ExecutionMode::IoBinding),
         })
     }
 
     /// Executes the end-to-end flow on an input string
-    /// based on the provided Schema Tasks.
+    /// based on the provided Schema Tasks. It tries IoBinding first,
+    /// then falls back to Standard execution on OOM.
     pub fn extract(
         &self, 
         text: &str, 
         tasks: &[SchemaTask]
-    ) -> Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
+    ) -> anyhow::Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
+        let current_mode = *self.execution_mode.read().unwrap();
+        
+        match current_mode {
+            ExecutionMode::IoBinding => {
+                match self.extract_iobinding(text, tasks) {
+                    Ok(res) => Ok(res),
+                    Err(GlinerError::OomDeviceBinding(msg)) => {
+                        eprintln!("[GLiNER2] OOM in IoBinding detected. Falling back to Standard Mode. Details: {}", msg);
+                        *self.execution_mode.write().unwrap() = ExecutionMode::Standard;
+                        self.extract_standard(text, tasks)
+                    },
+                    Err(other) => Err(anyhow::anyhow!(other)),
+                }
+            },
+            ExecutionMode::Standard => {
+                self.extract_standard(text, tasks)
+            }
+        }
+    }
+
+    /// Fast path: IOBinding logic directly in VRAM.
+    pub fn extract_iobinding(
+        &self, 
+        text: &str, 
+        tasks: &[SchemaTask]
+    ) -> Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>), GlinerError> {
+        // TODO: Full IOBinding implementation goes here.
+        // For now, simulate failure to trigger fallback.
+        Err(GlinerError::OomDeviceBinding("IOBinding non ancora implementato, fallback alla modalità Standard.".to_string()))
+    }
+
+    /// Safe path: Standard execution logic (data transferred to CPU between steps).
+    pub fn extract_standard(
+        &self, 
+        text: &str, 
+        tasks: &[SchemaTask]
+    ) -> anyhow::Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
         
         // 1. Process prompt + text (token vector creation)
         let transformer = SchemaTransformer::new(self.tokenizer.clone());
@@ -672,3 +715,9 @@ impl Gliner2Engine {
     }
 }
 
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExecutionMode {
+    IoBinding, // Modalita' 2
+    Standard,  // Modalita' 1 (Fallback)
+}
