@@ -88,18 +88,41 @@ Comparison between native Rust ONNX execution and standard Python PyTorch infere
 2. Ensure you have the `onnxruntime` C/C++ libraries available on your system path.
 3. Export the GLiNER2 models to ONNX fragmented versions. 
 
-### Model Export
+### Model Export & Smart Downloader
 
-Because of GLiNER2's dynamic architecture (which cycles dynamically over a sequence of JSON prompts rather than acting as a static FeedForward layer), the PyTorch model must be exported into 5 fragmented files using a tracing script:
+Because of GLiNER2's dynamic architecture (which cycles dynamically over a sequence of JSON prompts rather than acting as a static FeedForward layer), the PyTorch model must be exported into a fragmented pipeline. We provide two architectures:
 
-*   `encoder_fp16.onnx` (or `encoder_fp32.onnx`)
-*   `span_rep_fp16.onnx` (or `span_rep_fp32.onnx`)
-*   `count_pred_fp16.onnx` (or `count_pred_fp32.onnx`)
-*   `count_lstm_fp16.onnx` (or `count_lstm_fp32.onnx`)
-*   `classifier_fp16.onnx` (or `classifier_fp32.onnx`)
+#### 1. V2 Architecture (Zero-Copy IOBinding ⚡ - Recommended)
+Fuses data manipulation operations directly into the ONNX graph. Tensors stay inside the GPU/NPU VRAM, yielding a ~30% performance boost. Generates 8 files:
+*   `encoder...`
+*   `token_gather...`
+*   `span_rep...`
+*   `schema_gather...`
+*   `count_pred_argmax...`
+*   `count_lstm_fixed...`
+*   `scorer...`
+*   `classifier...`
 *   `tokenizer.json`
 
-Use the provided `onnx_conversion_scripts/06_export_base_multi_v1.py` script to trace and export models cleanly. Place these files in a specific directory (e.g. `./models/`).
+*(Export script: `onnx_conversion_scripts/export_gliner2_onnx_fragments_v2.py`)*
+
+#### 2. V1 Architecture (Standard CPU Slicing - Legacy)
+Standard PyTorch export into 5 files. Slower on discrete GPUs due to PCIe transfers, but completely stable on older hardware.
+*   `encoder...`
+*   `span_rep...`
+*   `count_pred...`
+*   `count_lstm...`
+*   `classifier...`
+*   `tokenizer.json`
+
+*(Export script: `onnx_conversion_scripts/export_gliner2_onnx.py`)*
+
+#### 🌍 Smart HF Downloader
+When downloading a model via `Gliner2Engine::from_pretrained("SemplificaAI/gliner2-multi-v1-onnx", Some("fp16_v2"), ...)`, the Rust engine uses an **OS-Aware Smart Downloader** to fetch only the optimal variant:
+- **Windows/Linux**: Downloads the `_fp16_iobinding.onnx` variants to maximize CUDA/ROCm/TensorRT performance.
+- **macOS/iOS**: Automatically falls back to standard `_fp16.onnx` to ensure compatibility with Apple CoreML.
+
+This mechanism cuts bandwidth and disk usage by ~50% while delivering the best possible performance out of the box!
 
 ## 💻 Usage
 
