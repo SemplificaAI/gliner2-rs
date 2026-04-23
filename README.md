@@ -195,11 +195,40 @@ Licensed under the [Apache License, Version 2.0](LICENSE).
 This project was developed by Dario Finardi at Semplifica s.r.l.
 # Release Notes
 
-## [v0.4.1] - 2026-04-21
-### 🎉 Improvements
+## [v0.5.0] - 2026-04-23
+### ⚙️ Dynamic Inference Parameters (`InferenceParams`)
+Introduced the `InferenceParams` struct to the `extract()` function, allowing per-request control over inference behavior without rebuilding the engine:
+- **`threshold`**: Controls the confidence score threshold (default `0.5`).
+- **`flat_ner`**: When `false` (default), overlapping entities with different labels are allowed (e.g. "Apple Inc." as `organization` and "Apple" as `company`). When `true`, strict greedy NMS removes any overlap, regardless of label.
+
+### 📐 Note on `max_width`
+You may notice that `max_width` (the maximum length of an entity in tokens) is not part of `InferenceParams` but remains in `Gliner2Config` at engine initialization. 
+**Why isn't it dynamic?** In the high-performance V2 IOBinding architecture, the span representation layer is fused directly into the ONNX computational graph. During export, the dimension for `max_width` is hard-baked into the model tensors (e.g., `[batch, num_words, 8, hidden_size]`). Changing `max_width` at runtime in V2 would cause an immediate ONNX shape mismatch error. Thus, it remains a structural configuration parameter.
+
+---
+
+## [v0.4.2] - 2026-04-22
+### 🚀 Smart Downloads & HF Ecosystem
+- **OS-Aware Model Downloader**: `from_pretrained` logic has been heavily optimized. It now parses `std::env::consts::OS` to selectively download only the `_fp16_iobinding` variants for Linux/Windows (CUDA/ROCm) and standard `_fp16` for macOS (CoreML). This drops the V2 download size from 1.2GB to ~600MB.
+- **Manual IOBinding Override**: Introduced `GLINER2_NO_IOBINDING=1` environment variable to force fallback to standard FP16 execution even on supported hardware.
+- **Hugging Face Model Card**: Generated the optimal `README_HF.md` to properly showcase the V2 capabilities on the Hub.
+- **Automated V2 Uploads**: Included `upload_v2_to_hf.py` inside `onnx_conversion_scripts` to streamline uploading the double V2 variants (`fp16_v2` and `fp32_v2`) to the Hugging Face ecosystem.
+
+---
+
+## [v0.4.1] - 2026-04-22
+### ⚡ V2 Zero-Copy IOBinding Architecture
+- **Performance**: Up to 30% reduction in inference latency (currently tested and verified on NVIDIA RTX GPUs and AMD Ryzen CPUs).
+- **ONNX Graph Fusion**: Ported previously CPU-bound operations (`Gather` for Token/Schema representations, `ArgMax` for prediction counts, and `MatMul` replacing Einsum for the Scorer) directly into the ONNX session.
+- **IOBinding Bypass**: Data now remains fully encapsulated within the VRAM buffer avoiding expensive PCIe bus transactions.
+- **Facade Auto-detect**: Built an intelligent `Gliner2Engine` wrapper to automatically detect whether to use V1 CPU-slicing logic or V2 IOBinding without breaking changes to the consumer code.
+
+### 🎉 Additional Improvements
 - **Advanced Multitask Extraction**: Expanded `test_hf_download.rs` to demonstrate concurrent extraction of Entities, Relations, and Classifications (Sentiment/Topic).
 - **Relations Schema Fix**: Corrected the relations schema mapping to properly use `head` and `tail` node identifiers.
 - **Internationalization**: Translated remaining Italian logs and comments to English for broader accessibility.
+
+---
 
 ## [v0.3.0] - 2026-04-21
 ### 🎉 New Features
@@ -216,28 +245,3 @@ This project was developed by Dario Finardi at Semplifica s.r.l.
 
 ## [v0.2.3]
 - Initial functional release supporting basic Pytorch-converted fragments with local paths.
-
-
-## [v0.5.0] - 2026-04-23
-### ⚙️ Dynamic Inference Parameters (`InferenceParams`)
-Introduced the `InferenceParams` struct to the `extract()` function, allowing per-request control over inference behavior without rebuilding the engine:
-- **`threshold`**: Controls the confidence score threshold (default `0.5`).
-- **`flat_ner`**: When `false` (default), overlapping entities with different labels are allowed (e.g. "Apple Inc." as `organization` and "Apple" as `company`). When `true`, strict greedy NMS removes any overlap, regardless of label.
-
-### 📐 Note on `max_width`
-You may notice that `max_width` (the maximum length of an entity in tokens) is not part of `InferenceParams` but remains in `Gliner2Config` at engine initialization. 
-**Why isn't it dynamic?** In the high-performance V2 IOBinding architecture, the span representation layer is fused directly into the ONNX computational graph. During export, the dimension for `max_width` is hard-baked into the model tensors (e.g., `[batch, num_words, 8, hidden_size]`). Changing `max_width` at runtime in V2 would cause an immediate ONNX shape mismatch error. Thus, it remains a structural configuration parameter.
-
-## [v0.4.2] - 2026-04-22
-### 🚀 Smart Downloads & HF Ecosystem
-- **OS-Aware Model Downloader**: `from_pretrained` logic has been heavily optimized. It now parses `std::env::consts::OS` to selectively download only the `_fp16_iobinding` variants for Linux/Windows (CUDA/ROCm) and standard `_fp16` for macOS (CoreML). This drops the V2 download size from 1.2GB to ~600MB.
-- **Manual IOBinding Override**: Introduced `GLINER2_NO_IOBINDING=1` environment variable to force fallback to standard FP16 execution even on supported hardware.
-- **Hugging Face Model Card**: Generated the optimal `README_HF.md` to properly showcase the V2 capabilities on the Hub.
-- **Automated V2 Uploads**: Included `upload_v2_to_hf.py` inside `onnx_conversion_scripts` to streamline uploading the double V2 variants (`fp16_v2` and `fp32_v2`) to the Hugging Face ecosystem.
-
-## [v0.4.1] - 2026-04-22
-### ⚡ V2 Zero-Copy IOBinding Architecture
-- **Performance**: Up to 30% reduction in inference latency (currently tested and verified on NVIDIA RTX GPUs and AMD Ryzen CPUs).
-- **ONNX Graph Fusion**: Ported previously CPU-bound operations (`Gather` for Token/Schema representations, `ArgMax` for prediction counts, and `MatMul` replacing Einsum for the Scorer) directly into the ONNX session.
-- **IOBinding Bypass**: Data now remains fully encapsulated within the VRAM buffer avoiding expensive PCIe bus transactions.
-- **Facade Auto-detect**: Built an intelligent `Gliner2Engine` wrapper to automatically detect whether to use V1 CPU-slicing logic or V2 IOBinding without breaking changes to the consumer code.
