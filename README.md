@@ -11,7 +11,7 @@
 
 This crate completely replicates the advanced sub-word tokenization and prompt-generation logic of GLiNER2's `processor.py` internally, using the official `tokenizers` crate for zero-overhead BPE tokenization.
 
-*Copyright 2026 Dario Finardi, [Semplifica s.r.l.(https://semplifica.ai)]*  
+*Copyright 2026 Dario Finardi, [https://semplifica.ai](Semplifica s.r.l.)*  
 *Licensed under Apache License 2.0*
 
 ## 🚀 Features
