@@ -32,19 +32,19 @@ We have introduced **V2 fused models** (`fp16_v2` and `fp32_v2`) that fuse `Gath
 
 The ONNX conversion, combined with the Rust native engine (`ort` binding), allows this model to run extremely fast on both GPUs and edge devices like NPUs.
 
-**Benchmark Task:** Tested on complex text extraction tasks spanning up to 62 classes (metrics normalized per extracted entity to allow cross-device comparison).
+**Benchmark Task:** Tested on complex text extraction tasks spanning up to 62 classes. **Total Inference Time per Sentence** is the primary metric for fair cross-framework comparison.
 
-| Hardware | Execution Provider | Model Variant | Avg Time / Entity |
-| :--- | :--- | :--- | :--- |
-| **NVIDIA RTX 4090** | CUDA (V2 IOBinding) | `fp16_v2` | **~7.0 ms** ⚡ |
-| **NVIDIA RTX 3090** | CUDA (V2 IOBinding) | `fp16_v2` | **~7.2 ms** ⚡ |
-| **NVIDIA RTX 4090** | CUDA (V1 Standard) | `fp16` | **~12.0 ms** 🚀 |
-| **NVIDIA RTX 3090** | CUDA (V1 Standard) | `fp16` | **~11.6 ms** 🚀 |
-| **Qualcomm Snapdragon X Elite** | QNN (V2 NPU Native) | `fp16_v2` | **~19.36 ms** ✨ |
-| **Qualcomm Snapdragon X Elite** | QNN (V1 NPU Native) | `fp16` | **~22.78 ms** |
-| **AMD Ryzen 9 5900XT** (16-Core) | CPU (x86 AVX2) | `fp32_v2` | **~20.6 ms** 💻 |
-| **Qualcomm Snapdragon X Elite** | CPU (V2 ARM NEON) | `fp32_v2` | **~24.32 ms** |
-| **Qualcomm Snapdragon X Elite** | CPU (V1 ARM NEON) | `fp32` | **~28.62 ms** |
+| Hardware | Execution Provider | Model Variant | Avg Time / Sentence | Avg Time / Entity |
+| :--- | :--- | :--- | :--- | :--- |
+| **NVIDIA RTX 4090** | CUDA (V2 IOBinding) | `fp16_v2` | **~29.59 ms** ⚡ | ~7.0 ms |
+| **NVIDIA RTX 3090** | CUDA (V2 IOBinding) | `fp16_v2` | **~30.68 ms** ⚡ | ~7.2 ms |
+| **NVIDIA RTX 4090** | CUDA (V1 Standard) | `fp16` | **~40.90 ms** 🚀 | ~12.0 ms |
+| **NVIDIA RTX 3090** | CUDA (V1 Standard) | `fp16` | **~42.97 ms** 🚀 | ~11.6 ms |
+| **Qualcomm Snapdragon X Elite** | QNN (V2 NPU Native) | `fp16_v2` | **~650.0 ms** ✨ | ~12.88 ms |
+| **Qualcomm Snapdragon X Elite** | QNN (V1 NPU Native) | `fp16` | **~710.0 ms** | ~14.11 ms |
+| **AMD Ryzen 9 5900XT** (16-Core) | CPU (x86 AVX2) | `fp32_v2` | **~58.44 ms** 💻 | ~13.75 ms |
+| **Qualcomm Snapdragon X Elite** | CPU (V2 ARM NEON) | `fp32_v2` | **~660.0 ms** | ~13.10 ms |
+| **Qualcomm Snapdragon X Elite** | CPU (V1 ARM NEON) | `fp32` | **~430.0 ms** | ~8.53 ms |
 
 ## 📦 Usage in Rust
 

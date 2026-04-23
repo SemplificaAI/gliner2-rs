@@ -35,21 +35,21 @@ This crate completely replicates the advanced sub-word tokenization and prompt-g
 
 ## 📊 Benchmark & Performance
 
-Tested on complex text extraction tasks spanning up to 62 classes. Metrics are normalized per extracted entity (15 entities) to allow precise cross-device and cross-language comparisons.
+Tested on complex text extraction tasks spanning up to 62 classes. Total Inference Time per Sentence is the primary metric used for fair cross-framework comparison, allowing precise cross-device and cross-language comparisons.
 
 ### 🖥️ Rust ONNX vs Python PyTorch (Desktop & Discrete GPUs)
 Comparison of a 50-run continuous benchmark on x86_64 architecture with NVIDIA GPUs.
 
 | Language | Engine (Hardware) | Total Time (50 runs) | Avg Time / Sentence | Avg Time / Entity (15-17) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Python 3.10** | PyTorch (RTX 4090) | **~0.88 s** 🚀 | 4.40 ms | **1.17 ms** |
-| **Python 3.10** | PyTorch (RTX 3090) | **~0.90 s** 🚀 | 4.52 ms | **1.20 ms** |
-| **Rust (V1)** | ONNX Runtime CUDA (RTX 4090) | **~8.18 s** | 40.90 ms | **10.90 ms** |
-| **Rust (V2)* ** | ONNX Runtime CUDA (RTX 4090) | **~5.91 s** ⚡ | 29.59 ms | **6.96 ms** |
-| **Rust (V1)** | ONNX Runtime CUDA (RTX 3090) | **~8.59 s** | 42.97 ms | **11.45 ms** |
-| **Rust (V2)* ** | ONNX Runtime CUDA (RTX 3090) | **~6.13 s** ⚡ | 30.68 ms | **7.21 ms** |
-| **Python 3.10** | PyTorch (Ryzen 5900XT CPU) | **~7.26 s** | 36.33 ms | **9.68 ms** |
-| **Rust (V1)** | ONNX Runtime (Ryzen 5900XT CPU) | **~13.75 s** | 68.76 ms | **18.33 ms** |
+| **Python 3.10** | PyTorch (RTX 4090) | **~0.88 s** 🚀 | **4.40 ms** | 1.17 ms |
+| **Python 3.10** | PyTorch (RTX 3090) | **~0.90 s** 🚀 | **4.52 ms** | 1.20 ms |
+| **Rust (V1)** | ONNX Runtime CUDA (RTX 4090) | **~8.18 s** | **40.90 ms** | 10.90 ms |
+| **Rust (V2)* ** | ONNX Runtime CUDA (RTX 4090) | **~5.91 s** ⚡ | **29.59 ms** | 6.96 ms |
+| **Rust (V1)** | ONNX Runtime CUDA (RTX 3090) | **~8.59 s** | **42.97 ms** | 11.45 ms |
+| **Rust (V2)* ** | ONNX Runtime CUDA (RTX 3090) | **~6.13 s** ⚡ | **30.68 ms** | 7.21 ms |
+| **Python 3.10** | PyTorch (Ryzen 5900XT CPU) | **~7.26 s** | **36.33 ms** | 9.68 ms |
+| **Rust (V1)** | ONNX Runtime (Ryzen 5900XT CPU) | **~13.75 s** | **68.76 ms** | 18.33 ms |
 
 > *( * ) **V2 IOBinding Engine:** The new V2 implementation eliminates the PCIe bottleneck by fusing operations (`Gather`, `ArgMax`, `MatMul`) inside the ONNX graph and keeping tensors entirely in VRAM (Zero-Copy) using ORT's `IoBinding`. This drastically drops the execution time.
 
@@ -64,19 +64,22 @@ While V2 IOBinding successfully eliminates the PCIe data transfer bottleneck (te
 
 ### 🐍 Rust vs Python on ARM (Snapdragon X Elite)
 Comparison between native Rust ONNX execution and standard Python PyTorch inference on the same ARM hardware.
+Note: Benchmarks executed plugged in (Max Performance profile). Testing 51 target entities extraction.
 
-| Environment | Backend (Hardware) | Model | Startup Time | Avg Time (Total) | Avg Time / Entity |
+| Environment | Hardware (Backend) | Precision (Model) | Startup Time | Total Inference Time (Sentence) | Time / Entity |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Rust (V1)** | ONNX Runtime (NPU - QNN) | `gliner2-multi-v1-onnx` | **~2.02 s** | 0.65 s | **~16.07 ms** |
-| **Rust (V2)* ** | ONNX Runtime (NPU - QNN) | `fp16_v2` | **~2.02 s** ⚡ | 0.55 s | **~13.66 ms** |
-| **Rust (V1)** | ONNX Runtime (CPU ARM64) | `gliner2-multi-v1-onnx` | **~1.89 s** | 0.68 s | **~16.58 ms** |
-| **Rust (V2)* ** | ONNX Runtime (CPU ARM64) | `fp32_v2` | **~1.89 s** | 0.58 s | **~14.09 ms** |
-| **Python 3.12** | PyTorch (CPU ARM64) | `fastino/gliner2-multi-v1` | **~9.21 s** 🐢 | 0.33 s | **~22.02 ms** |
-| **Python 3.12** | PyTorch (GLiNER2 - CPU ARM64) | `SemplificaAI/gliner2-multi-v1` | **~10.89 s** 🐢 | 0.35 s | **~19.41 ms** |
+| **Rust (V1)** | CPU ARM64 (Oryon) | `fp32` | **~3.64 s** | **0.43 s** 🚀 | ~8.53 ms |
+| **Rust (V2)* ** | NPU (QNN) | `fp16_v2` | **~2.28 s** | **0.65 s** ✨ | ~12.88 ms |
+| **Rust (V2)* ** | CPU ARM64 (Oryon) | `fp16_v2` | **~1.96 s** ⚡ | **0.66 s** | ~13.10 ms |
+| **Rust (V1)** | CPU ARM64 (Oryon) | `fp16` | **~1.82 s** | **0.68 s** | ~13.43 ms |
+| **Rust (V1)** | NPU (QNN) | `fp16` | **~2.12 s** | **0.71 s** | ~14.11 ms |
+| **Python 3.12** | CPU ARM64 (PyTorch) | `SemplificaAI/gliner2-multi-v1` | **~12.74 s** 🐢 | **0.31 s** | ~15.03 ms |
+| **Python 3.12** | CPU ARM64 (PyTorch) | `fastino/gliner2-multi-v1` | **~8.76 s** 🐢 | **0.36 s** | ~24.51 ms |
 
 **Takeaways:**
-- **Cold Start (Startup Time):** Rust completely skips the massive Python/PyTorch loading overhead, initializing the engine and weights **>4.5x faster** (~2s vs ~9s). This makes it vastly superior for edge devices, serverless functions, or quick on-demand extractions.
-- **Inference Speed:** Rust ONNX natively leverages the NPU (which PyTorch currently struggles to target effectively on Windows on ARM), gaining a solid speed advantage.
+- **The FP32 Surprise:** Instructing the Rust ONNX runtime to load full FP32 precision models allows the Snapdragon ARM64 Oryon CPU to skip expensive hardware/software downcasting. It slashes inference time to **0.43s per sentence**, completely crushing FP16 times and heavily outperforming the limited NPU drivers.
+- **V2 IOBinding is Consistent:** At matched FP16 precision, the fused V2 consistently beats the standard V1 architecture, both on CPU and NPU.
+- **Rust = Cold Start Speed & Reproducibility:** Rust boots in ~1.8-3.6s (depending on precision) and flawlessly extracts the exact overlapping entities without implicit filtering. Python struggles for ~9-12s just to load tensors and forces unrequested NMS flat_ner filtering which artificially alters the output count.
 
 ---
 
