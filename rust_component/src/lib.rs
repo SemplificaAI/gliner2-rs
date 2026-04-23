@@ -119,6 +119,23 @@ pub struct ExtractedClassification {
     pub score: f32,
 }
 
+/// Advanced inference parameters.
+#[derive(Debug, Clone, Copy)]
+pub struct InferenceParams {
+    pub threshold: f32,
+    pub flat_ner: bool,
+}
+
+impl Default for InferenceParams {
+    fn default() -> Self {
+        Self {
+            threshold: 0.5,
+            flat_ner: false,
+        }
+    }
+}
+
+
 /// Main inference engine.
 pub struct Gliner2EngineV1 {
     encoder: Session,
@@ -295,24 +312,25 @@ impl Gliner2EngineV1 {
     pub fn extract(
         &self, 
         text: &str, 
-        tasks: &[SchemaTask]
+        tasks: &[SchemaTask],
+        params: Option<InferenceParams>
     ) -> anyhow::Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
         let current_mode = *self.execution_mode.read().unwrap();
         
         match current_mode {
             ExecutionMode::IoBinding => {
-                match self.extract_iobinding(text, tasks) {
+                match self.extract_iobinding(text, tasks, params.clone()) {
                     Ok(res) => Ok(res),
                     Err(GlinerError::OomDeviceBinding(msg)) => {
                         eprintln!("[GLiNER2] OOM in IoBinding detected. Falling back to Standard Mode. Details: {}", msg);
                         *self.execution_mode.write().unwrap() = ExecutionMode::Standard;
-                        self.extract_standard(text, tasks)
+                        self.extract_standard(text, tasks, params)
                     },
                     Err(other) => Err(anyhow::anyhow!(other)),
                 }
             },
             ExecutionMode::Standard => {
-                self.extract_standard(text, tasks)
+                self.extract_standard(text, tasks, params)
             }
         }
     }
@@ -321,7 +339,8 @@ impl Gliner2EngineV1 {
     pub fn extract_iobinding(
         &self, 
         text: &str, 
-        tasks: &[SchemaTask]
+        tasks: &[SchemaTask],
+        _params: Option<InferenceParams>
     ) -> Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>), GlinerError> {
         // TODO: Full IOBinding implementation goes here.
         // For now, simulate failure to trigger fallback.
@@ -332,8 +351,12 @@ impl Gliner2EngineV1 {
     pub fn extract_standard(
         &self, 
         text: &str, 
-        tasks: &[SchemaTask]
+        tasks: &[SchemaTask],
+        params: Option<InferenceParams>
     ) -> anyhow::Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
+        let p = params.unwrap_or_default();
+        let threshold = p.threshold;
+        let flat_ner = p.flat_ner;
         
         // 1. Process prompt + text (token vector creation)
         let transformer = SchemaTransformer::new(self.tokenizer.clone());
@@ -656,7 +679,7 @@ impl Gliner2EngineV1 {
                                 
                                 let prob = 1.0 / (1.0 + (-logit).exp());
                                 
-                                if prob > 0.15 { // Lowered threshold for greater recall
+                                if prob > threshold {
                                     let original_start = record.word_to_token_maps[start].0;
                                     let original_end = record.word_to_token_maps[end - 1].1;
                                     
@@ -691,7 +714,10 @@ impl Gliner2EngineV1 {
                         c_matches.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
                         let mut selected: Vec<ExtractedEntity> = Vec::new();
                         for m in c_matches {
-                            let overlap = selected.iter().any(|s| !(m.end_tok <= s.start_tok || m.start_tok >= s.end_tok));
+                            let overlap = selected.iter().any(|s| {
+                            let spans_overlap = !(m.end_tok <= s.start_tok || m.start_tok >= s.end_tok);
+                            spans_overlap && (flat_ner || s.label == m.label)
+                        });
                             if !overlap {
                                 selected.push(m);
                             }
@@ -712,7 +738,10 @@ impl Gliner2EngineV1 {
                     all_entity_matches.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
                     let mut selected: Vec<ExtractedEntity> = Vec::new();
                     for m in all_entity_matches {
-                        let overlap = selected.iter().any(|s| !(m.end_tok <= s.start_tok || m.start_tok >= s.end_tok));
+                        let overlap = selected.iter().any(|s| {
+                        let spans_overlap = !(m.end_tok <= s.start_tok || m.start_tok >= s.end_tok);
+                        spans_overlap && (flat_ner || s.label == m.label)
+                    });
                         if !overlap {
                             selected.push(m);
                         }
@@ -783,11 +812,12 @@ impl Gliner2Engine {
     pub fn extract(
         &self, 
         text: &str, 
-        tasks: &[SchemaTask]
+        tasks: &[SchemaTask],
+        params: Option<InferenceParams>
     ) -> anyhow::Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
         match self {
-            Gliner2Engine::V1(engine) => engine.extract(text, tasks),
-            Gliner2Engine::V2(engine) => engine.extract(text, tasks),
+            Gliner2Engine::V1(engine) => engine.extract(text, tasks, params),
+            Gliner2Engine::V2(engine) => engine.extract(text, tasks, params),
         }
     }
 }

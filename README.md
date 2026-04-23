@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-SemplificaAI/gliner2--rs-blue?style=flat-square&logo=github)](https://github.com/SemplificaAI/gliner2-rs)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Version](https://img.shields.io/badge/Version-0.4.2-brightgreen.svg)](https://github.com/SemplificaAI/gliner2-rs)
+[![Version](https://img.shields.io/badge/Version-0.5.0-brightgreen.svg)](https://github.com/SemplificaAI/gliner2-rs)
 [![Status](https://img.shields.io/badge/Status-Beta-blue.svg)](https://github.com/SemplificaAI/gliner2-rs)
 
 **Native Rust Inference Engine for GLiNER2**
@@ -16,7 +16,7 @@ This crate completely replicates the advanced sub-word tokenization and prompt-g
 
 ## 🚀 Features
 
-### ⚡ What's New in 0.4.2 (V2 IOBinding Engine & Smart Downloads)
+### ⚡ What's New in 0.5.0 (Dynamic Inference Parameters)
 - **Zero-Copy PCIe bypass**: Replaces CPU manipulations with `Gather`, `ArgMax`, and `MatMul` operations fused directly into the ONNX graphs. Data now stays inside GPU/NPU VRAM, speeding up performance by ~30% (currently tested on NVIDIA RTX GPUs and AMD Ryzen CPUs).
 - **Automatic Engine Facade**: `Gliner2Engine` acts as an intelligent wrapper. It detects whether the model folder contains V1 or V2 files, automatically switching to the optimal execution pipeline. **No code changes are required** to use V2!
 - **Smart HF Downloader**: `Gliner2Engine::from_pretrained` now detects your OS. On CUDA/ROCm platforms it downloads the `_iobinding` variants, while on macOS (Apple Silicon/CoreML) it safely downloads the standard `_fp16` fallback. This **halves bandwidth and disk usage**!
@@ -216,6 +216,17 @@ This project was developed by Dario Finardi at Semplifica s.r.l.
 
 ## [v0.2.3]
 - Initial functional release supporting basic Pytorch-converted fragments with local paths.
+
+
+## [v0.5.0] - 2026-04-23
+### ⚙️ Dynamic Inference Parameters (`InferenceParams`)
+Introduced the `InferenceParams` struct to the `extract()` function, allowing per-request control over inference behavior without rebuilding the engine:
+- **`threshold`**: Controls the confidence score threshold (default `0.5`).
+- **`flat_ner`**: When `false` (default), overlapping entities with different labels are allowed (e.g. "Apple Inc." as `organization` and "Apple" as `company`). When `true`, strict greedy NMS removes any overlap, regardless of label.
+
+### 📐 Note on `max_width`
+You may notice that `max_width` (the maximum length of an entity in tokens) is not part of `InferenceParams` but remains in `Gliner2Config` at engine initialization. 
+**Why isn't it dynamic?** In the high-performance V2 IOBinding architecture, the span representation layer is fused directly into the ONNX computational graph. During export, the dimension for `max_width` is hard-baked into the model tensors (e.g., `[batch, num_words, 8, hidden_size]`). Changing `max_width` at runtime in V2 would cause an immediate ONNX shape mismatch error. Thus, it remains a structural configuration parameter.
 
 ## [v0.4.2] - 2026-04-22
 ### 🚀 Smart Downloads & HF Ecosystem

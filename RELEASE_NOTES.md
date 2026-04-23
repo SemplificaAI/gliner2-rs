@@ -1,3 +1,10 @@
+## [v0.5.0] - 2026-04-23
+### ✨ New Features & API Improvements
+- **Dynamic Inference Parameters (`InferenceParams`)**: Introduced `InferenceParams` to allow changing parameters at runtime for each `extract()` call without rebuilding the engine.
+  - **`threshold`**: Now a dynamic parameter (default `0.5`). Replaces the previous hardcoded constant.
+  - **`flat_ner`**: Added support for non-flat NER. If set to `false`, overlapping entities with different labels are allowed (e.g. "Mario Rossi" as `person` and "Mario" as `first_name`). If `true`, strict greedy NMS removes any overlap regardless of label.
+- **Architectural Clarity on `max_width`**: Clarified that `max_width` (default `8`) remains in `Gliner2Config` rather than `InferenceParams`. In the V2 IOBinding architecture, the span representation layer is fused directly into the ONNX graph with a hard-baked dimension (`[batch, num_words, 8, hidden_size]`). Therefore, `max_width` is a structural constraint of the V2 ONNX model and cannot be modified at runtime without causing a shape mismatch error.
+
 # Release Notes
 
 ## [v0.3.1] - 2026-04-21

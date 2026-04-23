@@ -53,6 +53,7 @@ use crate::{
     error::GlinerError,
     processor::{SchemaTask, SchemaTransformer},
     ExecutionMode, ExtractedClassification, ExtractedEntity, ExtractedRelation, Gliner2Config,
+    InferenceParams,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -241,11 +242,12 @@ impl Gliner2EngineV2 {
         &self,
         text: &str,
         tasks: &[SchemaTask],
+        params: Option<InferenceParams>,
     ) -> Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
         let mode = *self.execution_mode.read().unwrap();
         match mode {
             ExecutionMode::IoBinding => {
-                match self.extract_iobinding(text, tasks) {
+                match self.extract_iobinding(text, tasks, params) {
                     Ok(res) => Ok(res),
                     Err(GlinerError::OomDeviceBinding(msg)) => {
                         eprintln!(
@@ -253,12 +255,12 @@ impl Gliner2EngineV2 {
                             msg
                         );
                         *self.execution_mode.write().unwrap() = ExecutionMode::Standard;
-                        self.extract_standard(text, tasks)
+                        self.extract_standard(text, tasks, params)
                     }
                     Err(other) => Err(anyhow::anyhow!(other)),
                 }
             }
-            ExecutionMode::Standard => self.extract_standard(text, tasks),
+            ExecutionMode::Standard => self.extract_standard(text, tasks, params),
         }
     }
 
@@ -284,7 +286,11 @@ impl Gliner2EngineV2 {
         &self,
         text: &str,
         tasks: &[SchemaTask],
+        params: Option<InferenceParams>,
     ) -> Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>), GlinerError> {
+        let p = params.unwrap_or_default();
+        let threshold = p.threshold;
+        let flat_ner = p.flat_ner;
         // Mappa errori ORT → OomDeviceBinding (qualsiasi fallimento qui → fallback Standard)
         macro_rules! oe {
             ($expr:expr, $ctx:literal) => {
@@ -579,7 +585,6 @@ impl Gliner2EngineV2 {
             // scores: [MAX_COUNT, num_words, max_width, M]  (sigmoid già applicato nell'ONNX)
 
             // 4f. NMS greedy + soglia (identico a extract_standard)
-            const THRESHOLD: f32 = 0.15;
             let mut all_matches: Vec<ExtractedEntity> = Vec::new();
 
             for c_idx in 0..pred_count {
@@ -588,7 +593,7 @@ impl Gliner2EngineV2 {
                         let end = std::cmp::min(start + width_idx + 1, num_words);
                         for m in 0..num_labels {
                             let prob = scores[[c_idx, start, width_idx, m]];
-                            if prob > THRESHOLD {
+                            if prob > threshold {
                                 let char_start = record.word_to_char_maps[start].0;
                                 let char_end   = record.word_to_char_maps[end - 1].1;
                                 let orig_start = record.word_to_token_maps[start].0;
@@ -618,7 +623,8 @@ impl Gliner2EngineV2 {
             let mut selected: Vec<ExtractedEntity> = Vec::new();
             for candidate in all_matches {
                 let overlap = selected.iter().any(|s| {
-                    !(candidate.end_tok <= s.start_tok || candidate.start_tok >= s.end_tok)
+                    let spans_overlap = !(candidate.end_tok <= s.start_tok || candidate.start_tok >= s.end_tok);
+                    spans_overlap && (flat_ner || s.label == candidate.label)
                 });
                 if !overlap {
                     selected.push(candidate);
@@ -655,7 +661,11 @@ impl Gliner2EngineV2 {
         &self,
         text: &str,
         tasks: &[SchemaTask],
+        params: Option<InferenceParams>,
     ) -> Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
+        let p = params.unwrap_or_default();
+        let threshold = p.threshold;
+        let flat_ner = p.flat_ner;
         let transformer = SchemaTransformer::new(self.tokenizer.clone());
         let record = transformer.transform(text, tasks)?;
         let seq_len = record.input_ids.len();
@@ -822,7 +832,6 @@ impl Gliner2EngineV2 {
             // scores: [MAX_COUNT, num_words, max_width, M]
 
             // 4f. NMS + soglia (identico al v1, ma ora scores sono già sigmoid)
-            const THRESHOLD: f32 = 0.15;
             let mut all_matches: Vec<ExtractedEntity> = Vec::new();
 
             for c_idx in 0..pred_count {
@@ -831,7 +840,7 @@ impl Gliner2EngineV2 {
                         let end = std::cmp::min(start + width_idx + 1, num_words);
                         for m in 0..num_labels {
                             let prob = scores[[c_idx, start, width_idx, m]];
-                            if prob > THRESHOLD {
+                            if prob > threshold {
                                 let char_start = record.word_to_char_maps[start].0;
                                 let char_end   = record.word_to_char_maps[end - 1].1;
                                 let orig_start = record.word_to_token_maps[start].0;
@@ -863,7 +872,8 @@ impl Gliner2EngineV2 {
             let mut selected: Vec<ExtractedEntity> = Vec::new();
             for m in all_matches {
                 let overlap = selected.iter().any(|s| {
-                    !(m.end_tok <= s.start_tok || m.start_tok >= s.end_tok)
+                    let spans_overlap = !(m.end_tok <= s.start_tok || m.start_tok >= s.end_tok);
+                    spans_overlap && (flat_ner || s.label == m.label)
                 });
                 if !overlap {
                     selected.push(m);

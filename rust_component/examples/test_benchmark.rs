@@ -1,5 +1,4 @@
 use gliner2_inference::*;
-use std::time::Instant;
 use std::env;
 
 fn main() -> anyhow::Result<()> {
@@ -34,7 +33,7 @@ fn main() -> anyhow::Result<()> {
     ];
 
     println!("Warm-up (1 run)...");
-    let (entities, _, _) = engine.extract(text, &tasks)?;
+    let (entities, _, _) = engine.extract(text, &tasks, Some(InferenceParams { threshold: 0.5, flat_ner: false }))?;
     let num_entities = entities.len() as u32;
     
     println!("\n=== Correct Extraction ===");
@@ -48,7 +47,7 @@ fn main() -> anyhow::Result<()> {
     
     for i in 1..=num_runs {
         let start = std::time::Instant::now();
-        let _ = engine.extract(text, &tasks)?;
+        let _ = engine.extract(text, &tasks, Some(InferenceParams { threshold: 0.5, flat_ner: false }))?;
         let duration = start.elapsed();
         total_duration += duration;
         if i % 10 == 0 || i == 1 {
@@ -64,5 +63,5 @@ fn main() -> anyhow::Result<()> {
     println!("⏱️ Avg Time per Sentence: {:?}", time_per_sentence);
     println!("⏱️ Avg Time per Entity ({} extracted): {:?}", num_entities, time_per_entity);
 
-    Ok(())
+    std::process::exit(0);
 }
