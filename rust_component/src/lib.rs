@@ -101,6 +101,67 @@ pub struct ExtractedEntity {
     pub score: f32,
     pub start_tok: usize,
     pub end_tok: usize,
+    pub start_char: usize,
+    pub end_char: usize,
+}
+
+fn normalize_label_for_mask(label: &str) -> String {
+    let mut out = String::new();
+    for ch in label.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_uppercase());
+        } else {
+            out.push('_');
+        }
+    }
+    while out.contains("__") {
+        out = out.replace("__", "_");
+    }
+    out.trim_matches('_').to_string()
+}
+
+pub fn mask_pii_text(text: &str, entities: &[ExtractedEntity]) -> String {
+    let mut candidates: Vec<(usize, usize, f32, String)> = entities
+        .iter()
+        .filter_map(|e| {
+            if e.start_char < e.end_char && e.end_char <= text.len() {
+                Some((
+                    e.start_char,
+                    e.end_char,
+                    e.score,
+                    format!("[{}]", normalize_label_for_mask(&e.label)),
+                ))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    candidates.sort_by(|a, b| {
+        b.2
+            .partial_cmp(&a.2)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then((b.1 - b.0).cmp(&(a.1 - a.0)))
+            .then(a.0.cmp(&b.0))
+    });
+
+    let mut selected: Vec<(usize, usize, String)> = Vec::new();
+    for (start, end, _score, mask) in candidates {
+        let overlap = selected
+            .iter()
+            .any(|(s, e, _)| !(end <= *s || start >= *e));
+        if !overlap {
+            selected.push((start, end, mask));
+        }
+    }
+
+    selected.sort_by(|a, b| b.0.cmp(&a.0));
+
+    let mut out = text.to_string();
+    for (start, end, mask) in selected {
+        out.replace_range(start..end, &mask);
+    }
+    out
 }
 
 /// Data of a relation between two entities.
@@ -700,6 +761,8 @@ impl Gliner2EngineV1 {
                                                 text: entity_text.trim().to_string(),
                                                 start_tok: original_start,
                                                 end_tok: original_end,
+                                                start_char: char_start,
+                                                end_char: char_end,
                                             });
                                         }
                                     }

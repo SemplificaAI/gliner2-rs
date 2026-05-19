@@ -1,4 +1,5 @@
 import os
+import argparse
 import torch
 import torch.nn as nn
 from pathlib import Path
@@ -8,15 +9,18 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from gliner2 import GLiNER2
 
-def export_fragments():
+def export_fragments(
+    model_path: str = "fastino/gliner2-multi-v1",
+    out_dir_fp32: str = "models/fastino_gliner2_multi_v1_fp32",
+    out_dir_fp16: str = "models/fastino_gliner2_multi_v1_fp16",
+):
     print("==================================================")
     print("End-to-End Fragmented Export (ONNX FP32 & FP16)")
     print("Specific optimization for Rust / C++ backends")
     print("==================================================")
 
-    model_path = "fastino/gliner2-multi-v1"
-    out_dir_fp32 = Path("models/fastino_gliner2_multi_v1_fp32")
-    out_dir_fp16 = Path("models/fastino_gliner2_multi_v1_fp16")
+    out_dir_fp32 = Path(out_dir_fp32)
+    out_dir_fp16 = Path(out_dir_fp16)
     out_dir_fp32.mkdir(parents=True, exist_ok=True)
     out_dir_fp16.mkdir(parents=True, exist_ok=True)
     
@@ -253,4 +257,25 @@ def export_fragments():
     print("\n✅ End-to-end models (FP32 & FP16) are ready for Rust inference!")
 
 if __name__ == "__main__":
-    export_fragments()
+    parser = argparse.ArgumentParser(description="Export GLiNER2 V1 ONNX fragments (FP32 + FP16)")
+    parser.add_argument(
+        "--model_path",
+        default="fastino/gliner2-multi-v1",
+        help="HuggingFace model id or local checkpoint path",
+    )
+    parser.add_argument(
+        "--out_dir_fp32",
+        default="models/fastino_gliner2_multi_v1_fp32",
+        help="Output directory for FP32 ONNX fragments",
+    )
+    parser.add_argument(
+        "--out_dir_fp16",
+        default="models/fastino_gliner2_multi_v1_fp16",
+        help="Output directory for FP16 ONNX fragments",
+    )
+    args = parser.parse_args()
+    export_fragments(
+        model_path=args.model_path,
+        out_dir_fp32=args.out_dir_fp32,
+        out_dir_fp16=args.out_dir_fp16,
+    )

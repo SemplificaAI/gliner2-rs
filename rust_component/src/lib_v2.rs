@@ -608,6 +608,8 @@ impl Gliner2EngineV2 {
                                             text:      entity_text,
                                             start_tok: orig_start,
                                             end_tok:   orig_end,
+                                            start_char: char_start,
+                                            end_char: char_end,
                                         });
                                     }
                                 }
@@ -856,6 +858,8 @@ impl Gliner2EngineV2 {
                                             text:  entity_text,
                                             start_tok: orig_start,
                                             end_tok:   orig_end,
+                                            start_char: char_start,
+                                            end_char: char_end,
                                         });
                                     }
                                 }

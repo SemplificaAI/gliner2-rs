@@ -85,6 +85,18 @@ Note: Benchmarks executed plugged in (Max Performance profile). Testing 51 targe
 
 ## Installation & Setup
 
+### ONNX Runtime Compatibility (Important)
+
+- For this project, use **`ort = 2.0.0-rc.9`**.
+- Newer release candidates tested during migration (`2.0.0-rc.11` / `2.0.0-rc.12`) can hang during session initialization or inference on our target environments.
+- Keep the dependency pinned until upstream stability is confirmed.
+
+Example (`rust_component/Cargo.toml`):
+
+```toml
+ort = { version = "=2.0.0-rc.9", features = ["load-dynamic", "qnn", "cuda", "rocm", "coreml", "openvino", "directml", "tensorrt", "xnnpack", "half"] }
+```
+
 ### Installation Steps
 
 1. Clone this repository or add `gliner2-rs` to your `Cargo.toml`.
@@ -177,6 +189,22 @@ fn main() -> anyhow::Result<()> {
 ```
 
 ## Model Types
+
+### Privacy / PII Model Support
+- **Target model**: `SemplificaAI/gliner2-privacy-filter-PII-multi`
+- For this repository, the model is served as ONNX V2 fragments under `fp16_v2` / `fp32_v2`.
+- To load from HuggingFace with this crate, use:
+
+```rust
+let engine = Gliner2Engine::from_pretrained(
+    "SemplificaAI/gliner2-privacy-filter-PII-multi",
+    Some("fp16_v2"),
+    ModelType::HuggingFace,
+)?;
+```
+
+- A dedicated gate example is available in `rust_component/examples/test_pii_anonymization_gate.rs`.
+  It emits `needs_anonymization` and a `redacted_text` generated from detected PII spans.
 
 ### HuggingFace Base Model
 - **Type**: `ModelType::HuggingFace`

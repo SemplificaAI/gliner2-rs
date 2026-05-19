@@ -1,3 +1,14 @@
+## [v0.5.1] - 2026-05-19
+### ⚠️ Runtime Stability
+- **ORT version policy**: pin `ort` to `=2.0.0-rc.9`.
+- **Reason**: newer release candidates tested in this project (`rc.11` / `rc.12`) can hang during session initialization or inference.
+
+### 🔒 Privacy / PII
+- Added `mask_pii_text()` utility to redact text from extracted PII spans.
+- Extended `ExtractedEntity` with `start_char` / `end_char` offsets for robust masking.
+- Added `rust_component/examples/test_pii_anonymization_gate.rs` to output `needs_anonymization` + `redacted_text`.
+- Updated docs for loading `SemplificaAI/gliner2-privacy-filter-PII-multi` from `fp16_v2`.
+
 ## [v0.5.0] - 2026-04-23
 ### ✨ New Features & API Improvements
 - **Dynamic Inference Parameters (`InferenceParams`)**: Introduced `InferenceParams` to allow changing parameters at runtime for each `extract()` call without rebuilding the engine.
