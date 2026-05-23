@@ -1,6 +1,6 @@
 [package]
 name = "gliner2_inference"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 authors = ["Dario Finardi <git@semplifica.ai>", "Semplifica s.r.l."]
 description = "Native Rust inference engine for GLiNER2 models using ONNX Runtime."
@@ -11,8 +11,17 @@ repository = "https://github.com/SemplificaAI/gliner2-rs"
 # Manipolazione Tensor (L'equivalente NumPy per Rust)
 ndarray = "0.16.1"
 
-# Binding ufficiale Rust per ONNX Runtime (versione moderna)
-ort = { version = "2.0.0-rc.9", features = ["load-dynamic", "qnn", "cuda", "rocm", "coreml", "openvino", "directml", "tensorrt", "xnnpack", "half"] }
+# Binding ufficiale Rust per ONNX Runtime (versione moderna).
+# `default-features = false` disables ort's `download-binaries` (which
+# fetches the full ONNX Runtime distribution, including the multi-hundred-
+# megabyte CUDA / TensorRT EP DLLs) and `copy-dylibs` (which replicates
+# them next to the consumer's binary, where bundlers like Tauri's MSI
+# packager auto-include them — inflating downstream installers by 100+ MB
+# for zero runtime benefit when the consumer uses load-dynamic against
+# its own vendored onnxruntime.dll). The named EP features below stay on
+# so the runtime fallback chain in lib.rs / lib_v2.rs keeps compiling;
+# absent EPs gracefully fall back to CPU at session-init time.
+ort = { version = "2.0.0-rc.9", default-features = false, features = ["load-dynamic", "qnn", "cuda", "rocm", "coreml", "openvino", "directml", "tensorrt", "xnnpack", "half"] }
 
 # Tokenizer HuggingFace puro Rust (velocissimo, zero overhead Python)
 tokenizers = "0.19.1"
