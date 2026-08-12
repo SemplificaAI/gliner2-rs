@@ -36,19 +36,31 @@ pub use error::GlinerError;
 use ndarray::{Array0, Array2, Array3, s};
 use ort::{
     execution_providers::{
-        CPUExecutionProvider, CUDAExecutionProvider, CoreMLExecutionProvider,
-        OpenVINOExecutionProvider, QNNExecutionProvider, ROCmExecutionProvider,
-        XNNPACKExecutionProvider,
+        CPU, CUDA, CoreML,
+        OpenVINO, ROCm,
+        XNNPACK,
     },
     session::{builder::GraphOptimizationLevel, Session},
     value::{Tensor, Value, DynValueTypeMarker},
 };
 use tokenizers::Tokenizer;
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
 use serde::Serialize;
 
 use processor::SchemaTransformer;
+
+/// Converte un errore `ort` in `anyhow::Error`.
+///
+/// Da ort rc.13 `Error<R>` porta con sé un valore di *recovery* (il
+/// SessionBuilder, la MemoryInfo, …) che non è Send+Sync: `?` verso
+/// anyhow non compila più. Qui codice e messaggio vengono estratti e
+/// l'errore diventa un anyhow piatto.
+#[inline]
+fn oa<R>(e: ort::Error<R>) -> anyhow::Error {
+    anyhow::anyhow!("ort [{:?}]: {}", e.code(), e.message())
+}
+
 pub use processor::SchemaTask;
 
 /// Base configuration for initializing the engine.
@@ -199,11 +211,11 @@ impl Default for InferenceParams {
 
 /// Main inference engine.
 pub struct Gliner2EngineV1 {
-    encoder: Session,
-    span_rep: Session,
-    count_lstm: Session,
-    count_pred: Session,
-    classifier: Session,
+    encoder: Mutex<Session>,
+    span_rep: Mutex<Session>,
+    count_lstm: Mutex<Session>,
+    count_pred: Mutex<Session>,
+    classifier: Mutex<Session>,
     tokenizer: Tokenizer,
     config: Gliner2Config,
     pub execution_mode: RwLock<ExecutionMode>,
@@ -301,29 +313,30 @@ impl Gliner2EngineV1 {
             };
 
             let mut builder = Session::builder()?
-                .with_optimization_level(GraphOptimizationLevel::Level3)?
-                .with_memory_pattern(false)?;
+                .with_optimization_level(GraphOptimizationLevel::Level3).map_err(oa)?
+                .with_memory_pattern(false).map_err(oa)?;
 
             let force_cpu = std::env::var("FORCE_CPU").is_ok();
-            
+            // QNN/Hexagon NPU non usato — modelli FP32 non quantizzabili
+            // INT8 senza perdita precisione. CPU/XNNPACK vincono.
+            // Vedi `reference_qnn_npu_benchmark_2026_04_27` memory.
+
             if force_cpu {
                 builder = builder.with_execution_providers([
-                    QNNExecutionProvider::default().build(),
-                    OpenVINOExecutionProvider::default().build(),
-                    CoreMLExecutionProvider::default().build(),
-                    XNNPACKExecutionProvider::default().build(),
-                    CPUExecutionProvider::default().build(),
-                ])?;
+                    OpenVINO::default().build(),
+                    CoreML::default().build(),
+                    XNNPACK::default().build(),
+                    CPU::default().build(),
+                ]).map_err(oa)?;
             } else {
                 builder = builder.with_execution_providers([
-                    QNNExecutionProvider::default().build(),
-                    OpenVINOExecutionProvider::default().build(),
-                    CoreMLExecutionProvider::default().build(),
-                    CUDAExecutionProvider::default().build(),
-                    ROCmExecutionProvider::default().build(),
-                    XNNPACKExecutionProvider::default().build(),
-                    CPUExecutionProvider::default().build(),
-                ])?;
+                    OpenVINO::default().build(),
+                    CoreML::default().build(),
+                    CUDA::default().build(),
+                    ROCm::default().build(),
+                    XNNPACK::default().build(),
+                    CPU::default().build(),
+                ]).map_err(oa)?;
             }
 
             builder.commit_from_file(&path)
@@ -356,11 +369,11 @@ impl Gliner2EngineV1 {
             .map_err(|e| anyhow::anyhow!("Error loading Tokenizer: {}", e))?;
 
         Ok(Self { 
-            encoder, 
-            span_rep, 
-            count_lstm, 
-            count_pred, 
-            classifier, 
+            encoder: Mutex::new(encoder), 
+            span_rep: Mutex::new(span_rep), 
+            count_lstm: Mutex::new(count_lstm), 
+            count_pred: Mutex::new(count_pred), 
+            classifier: Mutex::new(classifier), 
             tokenizer, 
             config,
             execution_mode: RwLock::new(ExecutionMode::IoBinding),
@@ -397,10 +410,14 @@ impl Gliner2EngineV1 {
     }
 
     /// Fast path: IOBinding logic directly in VRAM.
+    /// Stub corrente: ritorna sempre `OomDeviceBinding` per triggerare il
+    /// fallback al path Standard. I param `text` / `tasks` saranno usati
+    /// quando l'IOBinding sarà implementato. Underscore prefix per
+    /// silenziare warning unused finché stub.
     pub fn extract_iobinding(
-        &self, 
-        text: &str, 
-        tasks: &[SchemaTask],
+        &self,
+        _text: &str,
+        _tasks: &[SchemaTask],
         _params: Option<InferenceParams>
     ) -> Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>), GlinerError> {
         // TODO: Full IOBinding implementation goes here.
@@ -415,6 +432,12 @@ impl Gliner2EngineV1 {
         tasks: &[SchemaTask],
         params: Option<InferenceParams>
     ) -> anyhow::Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
+        // Un solo lock per sessione, preso qui: Mutex non rientrante.
+        let mut g_encoder = self.encoder.lock().unwrap();
+        let mut g_span_rep = self.span_rep.lock().unwrap();
+        let mut g_count_lstm = self.count_lstm.lock().unwrap();
+        let mut g_count_pred = self.count_pred.lock().unwrap();
+        let mut g_classifier = self.classifier.lock().unwrap();
         let p = params.unwrap_or_default();
         let threshold = p.threshold;
         let flat_ner = p.flat_ner;
@@ -429,8 +452,8 @@ impl Gliner2EngineV1 {
 
         // 2. Encoder pass (DeBERTa) -> Contextual Embeddings
         let mut has_attention_mask = false;
-        for input in &self.encoder.inputs {
-            if input.name == "attention_mask" {
+        for input in g_encoder.inputs() {
+            if input.name() == "attention_mask" {
                 has_attention_mask = true;
             }
         }
@@ -439,23 +462,23 @@ impl Gliner2EngineV1 {
             ort::inputs![
                 "input_ids" => Tensor::from_array(input_ids)?,
                 "attention_mask" => Tensor::from_array(attention_mask)?
-            ]?
+            ]
         } else {
             ort::inputs![
                 "input_ids" => Tensor::from_array(input_ids)?
-            ]?
+            ]
         };
         
-        let enc_outputs = self.encoder.run(enc_inputs)?;
+        let enc_outputs = g_encoder.run(enc_inputs)?;
         
         // Handle different outputs based on model type
         let lhs_tensor = {
             if let Some(val) = enc_outputs.get("hidden_states") {
-                val.try_extract_tensor::<f32>()?.into_owned()
+                val.try_extract_array::<f32>()?.into_owned()
             } else if let Some(val) = enc_outputs.get("last_hidden_state") {
-                val.try_extract_tensor::<f32>()?.into_owned()
+                val.try_extract_array::<f32>()?.into_owned()
             } else if let Some(val) = enc_outputs.get("output") {
-                val.try_extract_tensor::<f32>()?.into_owned()
+                val.try_extract_array::<f32>()?.into_owned()
             } else {
                 return Err(anyhow::anyhow!("No valid encoder output found (tried hidden_states, last_hidden_state, output)"));
             }
@@ -498,11 +521,11 @@ impl Gliner2EngineV1 {
         // 3. Span Representation Layer
         let mut has_span_idx = false;
         let mut text_embs_name = "hidden_states";
-        for i in &self.span_rep.inputs {
-            if i.name == "span_idx" { has_span_idx = true; }
-            if i.name == "last_hidden_state" { text_embs_name = "last_hidden_state"; }
-            if i.name == "hidden_states" { text_embs_name = "hidden_states"; }
-            if i.name == "output" { text_embs_name = "output"; }
+        for i in g_span_rep.inputs() {
+            if i.name() == "span_idx" { has_span_idx = true; }
+            if i.name() == "last_hidden_state" { text_embs_name = "last_hidden_state"; }
+            if i.name() == "hidden_states" { text_embs_name = "hidden_states"; }
+            if i.name() == "output" { text_embs_name = "output"; }
         }
 
         let span_inputs = if has_span_idx {
@@ -510,7 +533,7 @@ impl Gliner2EngineV1 {
             ort::inputs![
                 text_embs_name => Tensor::from_array(text_embs)?,
                 "span_idx" => Tensor::from_array(span_idx_arr)?
-            ]?
+            ]
         } else {
             // HuggingFace model style: uses text_embs, span_start_idx, span_end_idx
             let mut start_idx_data = Vec::with_capacity(num_spans);
@@ -536,15 +559,15 @@ impl Gliner2EngineV1 {
                 text_embs_name => Tensor::from_array(text_embs)?,
                 "span_start_idx" => Tensor::from_array(start_arr)?,
                 "span_end_idx" => Tensor::from_array(end_arr)?
-            ]?
+            ]
         };
         
-        let span_outputs = self.span_rep.run(span_inputs)?;
+        let span_outputs = g_span_rep.run(span_inputs)?;
         let span_embeddings = {
             if let Some(val) = span_outputs.get("span_embeddings") {
-                val.try_extract_tensor::<f32>()?.into_owned()
+                val.try_extract_array::<f32>()?.into_owned()
             } else if let Some(val) = span_outputs.get("span_representations") {
-                val.try_extract_tensor::<f32>()?.into_owned()
+                val.try_extract_array::<f32>()?.into_owned()
             } else {
                 return Err(anyhow::anyhow!("No valid span_rep output found (tried span_embeddings, span_representations)"));
             }
@@ -585,13 +608,13 @@ impl Gliner2EngineV1 {
                 
                 let cls_inputs = ort::inputs![
                     "span_embeddings" => Tensor::from_array(padded_embs)?
-                ]?;
-                let cls_outputs = self.classifier.run(cls_inputs)?;
+                ];
+                let cls_outputs = g_classifier.run(cls_inputs)?;
                 let logits_tensor = {
                     if let Some(val) = cls_outputs.get("logits") {
-                        val.try_extract_tensor::<f32>()?.into_owned()
+                        val.try_extract_array::<f32>()?.into_owned()
                     } else if let Some(val) = cls_outputs.get("output") {
-                        val.try_extract_tensor::<f32>()?.into_owned()
+                        val.try_extract_array::<f32>()?.into_owned()
                     } else {
                         return Err(anyhow::anyhow!("No valid classifier output found"));
                     }
@@ -628,17 +651,21 @@ impl Gliner2EngineV1 {
 
             // 4b. Count LSTM Branch (Entities and Relations)
             let pc_emb_first = lhs_tensor.slice(s![0..1, task_map.prompt_tok_idx, ..]).to_owned();
-            let cpred_input_name = self.count_pred.inputs[0].name.as_str();
+            // Un SOLO lock per nome-input + run: `Mutex` non è rientrante,
+            // due `lock()` nello stesso scope sarebbero un deadlock.
+            // Il nome va copiato: `name()` presta dal guard, che subito dopo
+            // serve mutabile per `run`.
+            let cpred_input_name = g_count_pred.inputs()[0].name().to_string();
             let cpred_inputs = ort::inputs![
                 cpred_input_name => Tensor::from_array(pc_emb_first)?
-            ]?;
-            let cpred_outputs = self.count_pred.run(cpred_inputs)?;
+            ];
+            let cpred_outputs = g_count_pred.run(cpred_inputs)?;
             
             let count_logits = {
                 if let Some(val) = cpred_outputs.get("count_logits") {
-                    val.try_extract_tensor::<f32>()?.into_owned()
+                    val.try_extract_array::<f32>()?.into_owned()
                 } else if let Some(val) = cpred_outputs.get("output") {
-                    val.try_extract_tensor::<f32>()?.into_owned()
+                    val.try_extract_array::<f32>()?.into_owned()
                 } else {
                     return Err(anyhow::anyhow!("No valid count_pred output found"));
                 }
@@ -671,27 +698,33 @@ impl Gliner2EngineV1 {
             }
             let schema_embs = Array2::from_shape_vec((num_labels, hidden_size), schema_embs_data)?;
 
-            let mut count_inputs_vec: Vec<(&str, Value<DynValueTypeMarker>)> = Vec::new();
-            count_inputs_vec.push(("pc_emb", Tensor::from_array(schema_embs)?.into_dyn()));
-            
+            // Un SOLO lock per lettura nomi + run (Mutex non rientrante).
+            // I nomi vanno copiati prima: prestano dal guard, che poi serve
+            // mutabile per `run`.
+            let lstm_input_names: Vec<String> = g_count_lstm
+                .inputs().iter().map(|i| i.name().to_string()).collect();
+
+            let mut count_inputs_vec: Vec<(String, Value<DynValueTypeMarker>)> = Vec::new();
+            count_inputs_vec.push(("pc_emb".to_string(), Tensor::from_array(schema_embs)?.into_dyn()));
+
             // Pass the required integer to any remaining input parameter.
             // In flawed PyTorch exports this is often named "onnx::Cast_1".
             // In corrected exports it's "gold_count_val" or similar.
-            for input in &self.count_lstm.inputs {
-                if input.name != "pc_emb" {
+            for name in lstm_input_names {
+                if name != "pc_emb" {
                     let gold_val = Array0::from_elem((), pred_count as i64);
                     count_inputs_vec.push((
-                        input.name.as_str(), 
+                        name,
                         Tensor::from_array(gold_val)?.into_dyn()
                     ));
                 }
             }
-            let count_outputs = self.count_lstm.run(count_inputs_vec)?;
+            let count_outputs = g_count_lstm.run(count_inputs_vec)?;
             let struct_proj = {
                 if let Some(val) = count_outputs.get("count_embeddings") {
-                    val.try_extract_tensor::<f32>()?.into_owned()
+                    val.try_extract_array::<f32>()?.into_owned()
                 } else if let Some(val) = count_outputs.get("output") {
-                    val.try_extract_tensor::<f32>()?.into_owned()
+                    val.try_extract_array::<f32>()?.into_owned()
                 } else {
                     return Err(anyhow::anyhow!("No valid count_lstm output found"));
                 }

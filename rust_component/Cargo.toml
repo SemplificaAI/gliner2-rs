@@ -9,9 +9,10 @@ repository = "https://github.com/SemplificaAI/gliner2-rs"
 
 [dependencies]
 # Manipolazione Tensor (L'equivalente NumPy per Rust)
-ndarray = "0.16.1"
+ndarray = "0.17"
 
 # Binding ufficiale Rust per ONNX Runtime (versione moderna).
+#
 # `default-features = false` disables ort's `download-binaries` (which
 # fetches the full ONNX Runtime distribution, including the multi-hundred-
 # megabyte CUDA / TensorRT EP DLLs) and `copy-dylibs` (which replicates
@@ -21,7 +22,12 @@ ndarray = "0.16.1"
 # its own vendored onnxruntime.dll). The named EP features below stay on
 # so the runtime fallback chain in lib.rs / lib_v2.rs keeps compiling;
 # absent EPs gracefully fall back to CPU at session-init time.
-ort = { version = "2.0.0-rc.9", default-features = false, features = ["load-dynamic", "qnn", "cuda", "rocm", "coreml", "openvino", "directml", "tensorrt", "xnnpack", "half"] }
+#
+# `std` e `ndarray` vanno elencate esplicitamente: sono default di ort e
+# con default-features = false sparirebbero. `ndarray` serve a
+# `try_extract_array`, cioè al modo in cui leggiamo i tensori di output
+# da rc.13 in poi.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "load-dynamic", "qnn", "cuda", "rocm", "coreml", "openvino", "directml", "tensorrt", "xnnpack", "half"] }
 
 # Tokenizer HuggingFace puro Rust (velocissimo, zero overhead Python)
 tokenizers = "0.19.1"

@@ -35,11 +35,31 @@
 
 use anyhow::Result;
 use ndarray::{Array1, Array2, Array3, Array4};
+
+/// Estrae un `ndarray::ArrayD<f32>` da un output ONNX, provando prima `f32` e
+/// poi `f16` con conversione. Necessario perché i modelli v2 in formato
+/// `fp16_iobinding` emettono output `Tensor<f16>` mentre senza questo fallback
+/// `try_extract_array::<f32>()` fallirebbe con
+/// `Cannot extract Tensor<f32> from Tensor<f16>` rompendo l'inferenza.
+///
+/// PATCH LOCALE — upstream crate non ha questo fallback su tutti i path.
+macro_rules! extract_f32 {
+    ($val:expr) => {{
+        let __v = $val;
+        if let Ok(t) = __v.try_extract_array::<f32>() {
+            t.into_owned()
+        } else if let Ok(t) = __v.try_extract_array::<half::f16>() {
+            t.into_owned().mapv(|x| x.to_f32())
+        } else {
+            anyhow::bail!("tensor output: né f32 né f16");
+        }
+    }};
+}
 use ort::{
     execution_providers::{
-        CPUExecutionProvider, CUDAExecutionProvider, CoreMLExecutionProvider,
-        OpenVINOExecutionProvider, QNNExecutionProvider, ROCmExecutionProvider,
-        XNNPACKExecutionProvider,
+        CPU, CUDA, CoreML,
+        OpenVINO, ROCm,
+        XNNPACK,
     },
     memory::{AllocationDevice, AllocatorType, MemoryInfo, MemoryType},
     session::{builder::GraphOptimizationLevel, Session},
@@ -47,7 +67,19 @@ use ort::{
 };
 use tokenizers::Tokenizer;
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock};
+
+/// Converte un errore `ort` in `anyhow::Error`.
+///
+/// Da ort rc.13 `Error<R>` porta con sé un valore di *recovery* (il
+/// SessionBuilder, la MemoryInfo, …) che non è Send+Sync: `?` verso
+/// anyhow non compila più. Qui codice e messaggio vengono estratti e
+/// l'errore diventa un anyhow piatto.
+#[inline]
+fn oa<R>(e: ort::Error<R>) -> anyhow::Error {
+    anyhow::anyhow!("ort [{:?}]: {}", e.code(), e.message())
+}
+
 
 use crate::{
     error::GlinerError,
@@ -62,14 +94,14 @@ use crate::{
 
 /// Engine IOBinding-ready per modelli ONNX v2.
 pub struct Gliner2EngineV2 {
-    encoder:            Session,
-    token_gather:       Session,
-    span_rep:           Session,
-    schema_gather:      Session,
-    count_pred_argmax:  Session,
-    count_lstm_fixed:   Session,
-    scorer:             Session,
-    classifier:         Session,
+    encoder: Mutex<Session>,
+    token_gather: Mutex<Session>,
+    span_rep: Mutex<Session>,
+    schema_gather: Mutex<Session>,
+    count_pred_argmax: Mutex<Session>,
+    count_lstm_fixed: Mutex<Session>,
+    scorer: Mutex<Session>,
+    classifier: Mutex<Session>,
     tokenizer:          Tokenizer,
     config:             Gliner2Config,
     pub execution_mode: RwLock<ExecutionMode>,
@@ -179,28 +211,39 @@ impl Gliner2EngineV2 {
 
             let force_cpu = std::env::var("FORCE_CPU").is_ok();
 
+            // QNN/Hexagon NPU **NON usato** per GLiNER2: i modelli sono
+            // FP32 e non possono essere quantizzati INT8 senza perdere
+            // precisione (verifica utente 2026-04-27). HTP ottimizza
+            // principalmente INT8, su FP32 il guadagno è negativo.
+            // Bench Snapdragon X Elite: CPU vince ~10% vs QNN/HTP.
+            // Vedi memory `reference_qnn_npu_benchmark_2026_04_27`.
             let mut builder = Session::builder()?
-                .with_optimization_level(GraphOptimizationLevel::Level3)?
-                .with_memory_pattern(false)?;
+                .with_optimization_level(GraphOptimizationLevel::Level3).map_err(oa)?
+                .with_memory_pattern(false).map_err(oa)?;
 
             if force_cpu {
                 builder = builder.with_execution_providers([
-                    QNNExecutionProvider::default().build(),
-                    OpenVINOExecutionProvider::default().build(),
-                    CoreMLExecutionProvider::default().build(),
-                    XNNPACKExecutionProvider::default().build(),
-                    CPUExecutionProvider::default().build(),
-                ])?;
+                    OpenVINO::default().build(),
+                    CoreML::default().build(),
+                    XNNPACK::default().build(),
+                    CPU::default().build(),
+                ]).map_err(oa)?;
             } else {
+                // Multi-backend cross-platform per future build:
+                // - OpenVINO (Intel CPU+iGPU)
+                // - CoreML (Apple Silicon ANE+GPU)
+                // - CUDA (NVIDIA discrete)
+                // - ROCm (AMD)
+                // - XNNPACK (CPU SIMD ottimizzato)
+                // - CPU (fallback finale)
                 builder = builder.with_execution_providers([
-                    QNNExecutionProvider::default().build(),
-                    OpenVINOExecutionProvider::default().build(),
-                    CoreMLExecutionProvider::default().build(),
-                    CUDAExecutionProvider::default().build(),
-                    ROCmExecutionProvider::default().build(),
-                    XNNPACKExecutionProvider::default().build(),
-                    CPUExecutionProvider::default().build(),
-                ])?;
+                    OpenVINO::default().build(),
+                    CoreML::default().build(),
+                    CUDA::default().build(),
+                    ROCm::default().build(),
+                    XNNPACK::default().build(),
+                    CPU::default().build(),
+                ]).map_err(oa)?;
             }
 
             println!("  Caricamento {:?}", path.file_name().unwrap());
@@ -221,14 +264,14 @@ impl Gliner2EngineV2 {
             .map_err(|e| anyhow::anyhow!("Errore tokenizer: {}", e))?;
 
         Ok(Self {
-            encoder,
-            token_gather,
-            span_rep,
-            schema_gather,
-            count_pred_argmax,
-            count_lstm_fixed,
-            scorer,
-            classifier,
+            encoder: Mutex::new(encoder),
+            token_gather: Mutex::new(token_gather),
+            span_rep: Mutex::new(span_rep),
+            schema_gather: Mutex::new(schema_gather),
+            count_pred_argmax: Mutex::new(count_pred_argmax),
+            count_lstm_fixed: Mutex::new(count_lstm_fixed),
+            scorer: Mutex::new(scorer),
+            classifier: Mutex::new(classifier),
             tokenizer,
             config,
             execution_mode: RwLock::new(ExecutionMode::IoBinding),
@@ -288,6 +331,15 @@ impl Gliner2EngineV2 {
         tasks: &[SchemaTask],
         params: Option<InferenceParams>,
     ) -> Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>), GlinerError> {
+        // Un solo lock per sessione, preso qui: Mutex non rientrante.
+        let mut g_encoder = self.encoder.lock().unwrap();
+        let mut g_token_gather = self.token_gather.lock().unwrap();
+        let mut g_span_rep = self.span_rep.lock().unwrap();
+        let mut g_schema_gather = self.schema_gather.lock().unwrap();
+        let mut g_count_pred_argmax = self.count_pred_argmax.lock().unwrap();
+        let mut g_count_lstm_fixed = self.count_lstm_fixed.lock().unwrap();
+        let mut g_scorer = self.scorer.lock().unwrap();
+        let mut g_classifier = self.classifier.lock().unwrap();
         let p = params.unwrap_or_default();
         let threshold = p.threshold;
         let flat_ner = p.flat_ner;
@@ -332,17 +384,17 @@ impl Gliner2EngineV2 {
         let input_ids_t = oe!(Tensor::from_array(input_ids_arr), "encoder input_ids tensor");
         let attn_mask_t = oe!(Tensor::from_array(attn_mask_arr), "encoder attn_mask tensor");
 
-        let enc_out_name = self.encoder.outputs.get(0)
-            .map(|o| o.name.clone())
+        let enc_out_name = g_encoder.outputs().get(0)
+            .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("encoder: nessun output registrato".into()))?;
 
-        let mut b_enc = oe!(self.encoder.create_binding(), "encoder create_binding");
+        let mut b_enc = oe!(g_encoder.create_binding(), "encoder create_binding");
         oe!(b_enc.bind_input("input_ids", &input_ids_t), "encoder bind input_ids");
         oe!(b_enc.bind_input("attention_mask", &attn_mask_t), "encoder bind attention_mask");
         oe!(b_enc.bind_output_to_device(&enc_out_name, &device_mem), "encoder bind output");
 
         let hs_val = {
-            let mut out = oe!(b_enc.run(), "encoder run");
+            let mut out = oe!(g_encoder.run_binding(&b_enc), "encoder run");
             out.remove(enc_out_name.as_str())
                 .ok_or_else(|| GlinerError::OomDeviceBinding(
                     format!("encoder: output '{}' non trovato", enc_out_name)
@@ -357,17 +409,17 @@ impl Gliner2EngineV2 {
             "token_gather word_idx tensor"
         );
 
-        let tg_out_name = self.token_gather.outputs.get(0)
-            .map(|o| o.name.clone())
+        let tg_out_name = g_token_gather.outputs().get(0)
+            .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("token_gather: nessun output".into()))?;
 
-        let mut b_tg = oe!(self.token_gather.create_binding(), "token_gather create_binding");
+        let mut b_tg = oe!(g_token_gather.create_binding(), "token_gather create_binding");
         oe!(b_tg.bind_input("last_hidden_state", &hs_val), "token_gather bind last_hidden_state");
         oe!(b_tg.bind_input("word_indices", &word_idx_t), "token_gather bind word_indices");
         oe!(b_tg.bind_output_to_device(&tg_out_name, &device_mem), "token_gather bind output");
 
         let text_embs_val = {
-            let mut out = oe!(b_tg.run(), "token_gather run");
+            let mut out = oe!(g_token_gather.run_binding(&b_tg), "token_gather run");
             out.remove(tg_out_name.as_str())
                 .ok_or_else(|| GlinerError::OomDeviceBinding(
                     format!("token_gather: output '{}' non trovato", tg_out_name)
@@ -392,17 +444,17 @@ impl Gliner2EngineV2 {
             .map_err(|e| GlinerError::Other(anyhow::anyhow!(e)))?;
         let span_idx_t = oe!(Tensor::from_array(span_idx_arr), "span_rep span_idx tensor");
 
-        let sr_out_name = self.span_rep.outputs.get(0)
-            .map(|o| o.name.clone())
+        let sr_out_name = g_span_rep.outputs().get(0)
+            .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("span_rep: nessun output".into()))?;
 
-        let mut b_sr = oe!(self.span_rep.create_binding(), "span_rep create_binding");
+        let mut b_sr = oe!(g_span_rep.create_binding(), "span_rep create_binding");
         oe!(b_sr.bind_input("hidden_states", &text_embs_val), "span_rep bind hidden_states");
         oe!(b_sr.bind_input("span_idx", &span_idx_t), "span_rep bind span_idx");
         oe!(b_sr.bind_output_to_device(&sr_out_name, &device_mem), "span_rep bind output");
 
         let span_embs_val = {
-            let mut out = oe!(b_sr.run(), "span_rep run");
+            let mut out = oe!(g_span_rep.run_binding(&b_sr), "span_rep run");
             out.remove(sr_out_name.as_str())
                 .ok_or_else(|| GlinerError::OomDeviceBinding(
                     format!("span_rep: output '{}' non trovato", sr_out_name)
@@ -410,23 +462,23 @@ impl Gliner2EngineV2 {
         };
 
         // ── Nomi output sessioni per-task (raccolti una sola volta) ───────────
-        let sg_pc_name = self.schema_gather.outputs.get(0)
-            .map(|o| o.name.clone())
+        let sg_pc_name = g_schema_gather.outputs().get(0)
+            .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("schema_gather: nessun output 0".into()))?;
-        let sg_fe_name = self.schema_gather.outputs.get(1)
-            .map(|o| o.name.clone())
+        let sg_fe_name = g_schema_gather.outputs().get(1)
+            .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("schema_gather: nessun output 1".into()))?;
-        let cp_out_name = self.count_pred_argmax.outputs.get(0)
-            .map(|o| o.name.clone())
+        let cp_out_name = g_count_pred_argmax.outputs().get(0)
+            .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("count_pred_argmax: nessun output".into()))?;
-        let cl_out_name = self.count_lstm_fixed.outputs.get(0)
-            .map(|o| o.name.clone())
+        let cl_out_name = g_count_lstm_fixed.outputs().get(0)
+            .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("count_lstm_fixed: nessun output".into()))?;
-        let sc_out_name = self.scorer.outputs.get(0)
-            .map(|o| o.name.clone())
+        let sc_out_name = g_scorer.outputs().get(0)
+            .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("scorer: nessun output".into()))?;
-        let cls_out_name = self.classifier.outputs.get(0)
-            .map(|o| o.name.clone())
+        let cls_out_name = g_classifier.outputs().get(0)
+            .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("classifier: nessun output".into()))?;
 
         // ── Step 4: Loop per-task ─────────────────────────────────────────────
@@ -451,14 +503,14 @@ impl Gliner2EngineV2 {
             // field_embs: device per entity, CPU per classification (serve sul host per padding)
             let field_mem: &MemoryInfo = if is_cls { &cpu_out_mem } else { &device_mem };
 
-            let mut b_sg = oe!(self.schema_gather.create_binding(), "schema_gather create_binding");
+            let mut b_sg = oe!(g_schema_gather.create_binding(), "schema_gather create_binding");
             oe!(b_sg.bind_input("last_hidden_state", &hs_val), "schema_gather bind last_hidden_state");
             oe!(b_sg.bind_input("schema_indices", &schema_idx_t), "schema_gather bind schema_indices");
             oe!(b_sg.bind_output_to_device(&sg_pc_name, &device_mem), "schema_gather bind pc_emb");
             oe!(b_sg.bind_output_to_device(&sg_fe_name, field_mem), "schema_gather bind field_embs");
 
             let (pc_emb_val, field_embs_val) = {
-                let mut out = oe!(b_sg.run(), "schema_gather run");
+                let mut out = oe!(g_schema_gather.run_binding(&b_sg), "schema_gather run");
                 let pc = out.remove(sg_pc_name.as_str())
                     .ok_or_else(|| GlinerError::OomDeviceBinding(
                         format!("schema_gather: output '{}' non trovato", sg_pc_name)
@@ -471,18 +523,18 @@ impl Gliner2EngineV2 {
             };
 
             // 4b. CountPredArgmax → output su CPU (int64 scalare, 8 byte)
-            let mut b_cp = oe!(self.count_pred_argmax.create_binding(), "count_pred_argmax create_binding");
+            let mut b_cp = oe!(g_count_pred_argmax.create_binding(), "count_pred_argmax create_binding");
             oe!(b_cp.bind_input("pc_emb", &pc_emb_val), "count_pred_argmax bind pc_emb");
             oe!(b_cp.bind_output_to_device(&cp_out_name, &cpu_out_mem), "count_pred_argmax bind output");
 
             let pred_count: usize = {
-                let mut out = oe!(b_cp.run(), "count_pred_argmax run");
+                let mut out = oe!(g_count_pred_argmax.run_binding(&b_cp), "count_pred_argmax run");
                 let val = out.remove(cp_out_name.as_str())
                     .ok_or_else(|| GlinerError::OomDeviceBinding(
                         format!("count_pred_argmax: output '{}' non trovato", cp_out_name)
                     ))?;
                 oe!(
-                    val.try_extract_tensor::<i64>().map_err(|e| anyhow::anyhow!(e)),
+                    val.try_extract_array::<i64>().map_err(|e| anyhow::anyhow!(e)),
                     "count_pred_argmax extract i64"
                 ).into_owned()[[0]] as usize
             };
@@ -493,9 +545,9 @@ impl Gliner2EngineV2 {
 
             // 4c. Task classificazione — field_embs è già su CPU (cpu_out_mem sopra)
             if is_cls {
-                let fe_arr = if let Ok(t) = field_embs_val.try_extract_tensor::<f32>() {
+                let fe_arr = if let Ok(t) = field_embs_val.try_extract_array::<f32>() {
                     t.into_owned()
-                } else if let Ok(t) = field_embs_val.try_extract_tensor::<half::f16>() {
+                } else if let Ok(t) = field_embs_val.try_extract_array::<half::f16>() {
                     t.into_owned().mapv(|x| x.to_f32())
                 } else {
                     return Err(GlinerError::OomDeviceBinding("field_embs format error".into()));
@@ -510,19 +562,19 @@ impl Gliner2EngineV2 {
                 }
                 let padded_t = oe!(Tensor::from_array(padded), "cls padded tensor");
 
-                let mut b_cls = oe!(self.classifier.create_binding(), "classifier create_binding");
+                let mut b_cls = oe!(g_classifier.create_binding(), "classifier create_binding");
                 oe!(b_cls.bind_input("span_embeddings", &padded_t), "classifier bind span_embeddings");
                 oe!(b_cls.bind_output_to_device(&cls_out_name, &cpu_out_mem), "classifier bind output");
 
                 let logits = {
-                    let mut out = oe!(b_cls.run(), "classifier run");
+                    let mut out = oe!(g_classifier.run_binding(&b_cls), "classifier run");
                     let val = out.remove(cls_out_name.as_str())
                         .ok_or_else(|| GlinerError::OomDeviceBinding(
                             format!("classifier: output '{}' non trovato", cls_out_name)
                         ))?;
-                    if let Ok(t) = val.try_extract_tensor::<f32>() {
+                    if let Ok(t) = val.try_extract_array::<f32>() {
                         t.into_owned()
-                    } else if let Ok(t) = val.try_extract_tensor::<half::f16>() {
+                    } else if let Ok(t) = val.try_extract_array::<half::f16>() {
                         t.into_owned().mapv(|x| x.to_f32())
                     } else {
                         return Err(GlinerError::OomDeviceBinding("classifier extract: type error".into()));
@@ -550,12 +602,12 @@ impl Gliner2EngineV2 {
             }
 
             // 4d. CountLSTMFixed → struct_proj su device
-            let mut b_cl = oe!(self.count_lstm_fixed.create_binding(), "count_lstm_fixed create_binding");
+            let mut b_cl = oe!(g_count_lstm_fixed.create_binding(), "count_lstm_fixed create_binding");
             oe!(b_cl.bind_input("field_embs", &field_embs_val), "count_lstm_fixed bind field_embs");
             oe!(b_cl.bind_output_to_device(&cl_out_name, &device_mem), "count_lstm_fixed bind output");
 
             let struct_proj_val = {
-                let mut out = oe!(b_cl.run(), "count_lstm_fixed run");
+                let mut out = oe!(g_count_lstm_fixed.run_binding(&b_cl), "count_lstm_fixed run");
                 out.remove(cl_out_name.as_str())
                     .ok_or_else(|| GlinerError::OomDeviceBinding(
                         format!("count_lstm_fixed: output '{}' non trovato", cl_out_name)
@@ -563,20 +615,20 @@ impl Gliner2EngineV2 {
             };
 
             // 4e. Scorer → entity_scores su CPU (per NMS)
-            let mut b_sc = oe!(self.scorer.create_binding(), "scorer create_binding");
+            let mut b_sc = oe!(g_scorer.create_binding(), "scorer create_binding");
             oe!(b_sc.bind_input("span_embeddings", &span_embs_val), "scorer bind span_embeddings");
             oe!(b_sc.bind_input("struct_proj", &struct_proj_val), "scorer bind struct_proj");
             oe!(b_sc.bind_output_to_device(&sc_out_name, &cpu_out_mem), "scorer bind output");
 
             let scores = {
-                let mut out = oe!(b_sc.run(), "scorer run");
+                let mut out = oe!(g_scorer.run_binding(&b_sc), "scorer run");
                 let val = out.remove(sc_out_name.as_str())
                     .ok_or_else(|| GlinerError::OomDeviceBinding(
                         format!("scorer: output '{}' non trovato", sc_out_name)
                     ))?;
-                if let Ok(t) = val.try_extract_tensor::<f32>() {
+                if let Ok(t) = val.try_extract_array::<f32>() {
                     t.into_owned()
-                } else if let Ok(t) = val.try_extract_tensor::<half::f16>() {
+                } else if let Ok(t) = val.try_extract_array::<half::f16>() {
                     t.into_owned().mapv(|x| x.to_f32())
                 } else {
                     return Err(GlinerError::OomDeviceBinding("scorer extract: type error".into()));
@@ -665,6 +717,15 @@ impl Gliner2EngineV2 {
         tasks: &[SchemaTask],
         params: Option<InferenceParams>,
     ) -> Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
+        // Un solo lock per sessione, preso qui: Mutex non rientrante.
+        let mut g_encoder = self.encoder.lock().unwrap();
+        let mut g_token_gather = self.token_gather.lock().unwrap();
+        let mut g_span_rep = self.span_rep.lock().unwrap();
+        let mut g_schema_gather = self.schema_gather.lock().unwrap();
+        let mut g_count_pred_argmax = self.count_pred_argmax.lock().unwrap();
+        let mut g_count_lstm_fixed = self.count_lstm_fixed.lock().unwrap();
+        let mut g_scorer = self.scorer.lock().unwrap();
+        let mut g_classifier = self.classifier.lock().unwrap();
         let p = params.unwrap_or_default();
         let threshold = p.threshold;
         let flat_ner = p.flat_ner;
@@ -675,25 +736,26 @@ impl Gliner2EngineV2 {
         // 1. Encoder
         let input_ids   = Array2::from_shape_vec((1, seq_len), record.input_ids.clone())?;
         let attn_mask   = Array2::from_shape_vec((1, seq_len), record.attention_mask.clone())?;
-        let enc_out     = self.encoder.run(ort::inputs![
+        let enc_out     = g_encoder.run(ort::inputs![
             "input_ids"      => Tensor::from_array(input_ids)?,
             "attention_mask" => Tensor::from_array(attn_mask)?
-        ]?)?;
+        ])?;
         let hs = {
             let mut found = None;
             for name in ["hidden_states", "last_hidden_state", "output"] {
                 if let Some(v) = enc_out.get(name) {
-                    found = Some(v.try_extract_tensor::<f32>()?.into_owned());
+                    found = Some(extract_f32!(v));
                     break;
                 }
             }
-            found.unwrap_or_else(|| {
-                enc_out.values().next()
-                    .expect("encoder: nessun output trovato")
-                    .try_extract_tensor::<f32>()
-                    .expect("encoder: tipo non f32")
-                    .into_owned()
-            })
+            match found {
+                Some(a) => a,
+                None => {
+                    let v_fallback = enc_out.values().next()
+                        .ok_or_else(|| anyhow::anyhow!("encoder: nessun output trovato"))?;
+                    extract_f32!(v_fallback)
+                }
+            }
         };
 
         let num_words = record.word_to_token_maps.len();
@@ -706,13 +768,15 @@ impl Gliner2EngineV2 {
         let word_starts: Vec<i64> = record.word_to_token_maps.iter()
             .map(|&(s, _)| s as i64).collect();
         let word_idx_arr = Array1::from_vec(word_starts);
-        let tg_out = self.token_gather.run(ort::inputs![
+        let tg_out = g_token_gather.run(ort::inputs![
             "last_hidden_state" => Tensor::from_array(hs.clone())?,
             "word_indices"      => Tensor::from_array(word_idx_arr)?
-        ]?)?;
-        let text_embs = tg_out.values().next()
-            .ok_or_else(|| anyhow::anyhow!("token_gather: nessun output"))?
-            .try_extract_tensor::<f32>()?.into_owned();
+        ])?;
+        let text_embs = {
+            let v = tg_out.values().next()
+                .ok_or_else(|| anyhow::anyhow!("token_gather: nessun output"))?;
+            extract_f32!(v)
+        };
 
         // 3. SpanRep
         let num_spans = num_words * self.config.max_width;
@@ -729,13 +793,15 @@ impl Gliner2EngineV2 {
             }
         }
         let span_idx_arr = Array3::from_shape_vec((1, num_spans, 2), span_idx_data)?;
-        let sr_out = self.span_rep.run(ort::inputs![
+        let sr_out = g_span_rep.run(ort::inputs![
             "hidden_states" => Tensor::from_array(text_embs)?,
             "span_idx"      => Tensor::from_array(span_idx_arr)?
-        ]?)?;
-        let span_embs = sr_out.values().next()
-            .ok_or_else(|| anyhow::anyhow!("span_rep: nessun output"))?
-            .try_extract_tensor::<f32>()?.into_owned();
+        ])?;
+        let span_embs = {
+            let v = sr_out.values().next()
+                .ok_or_else(|| anyhow::anyhow!("span_rep: nessun output"))?;
+            extract_f32!(v)
+        };
 
         // 4. Loop per-task
         let mut final_entities       = Vec::new();
@@ -751,25 +817,29 @@ impl Gliner2EngineV2 {
                 .chain(task_map.field_tok_indices.iter().map(|&i| i as i64))
                 .collect();
             let schema_idx_arr = Array1::from_vec(schema_indices);
-            let sg_out = self.schema_gather.run(ort::inputs![
+            let sg_out = g_schema_gather.run(ort::inputs![
                 "last_hidden_state" => Tensor::from_array(hs.clone())?,
                 "schema_indices"    => Tensor::from_array(schema_idx_arr)?
-            ]?)?;
+            ])?;
             let mut sg_iter = sg_out.values();
-            let pc_emb = sg_iter.next()
-                .ok_or_else(|| anyhow::anyhow!("schema_gather: pc_emb mancante"))?
-                .try_extract_tensor::<f32>()?.into_owned();   // [1, H]
-            let field_embs = sg_iter.next()
-                .ok_or_else(|| anyhow::anyhow!("schema_gather: field_embs mancante"))?
-                .try_extract_tensor::<f32>()?.into_owned();   // [M, H]
+            let pc_emb = {
+                let v = sg_iter.next()
+                    .ok_or_else(|| anyhow::anyhow!("schema_gather: pc_emb mancante"))?;
+                extract_f32!(v)   // [1, H]
+            };
+            let field_embs = {
+                let v = sg_iter.next()
+                    .ok_or_else(|| anyhow::anyhow!("schema_gather: field_embs mancante"))?;
+                extract_f32!(v)   // [M, H]
+            };
 
             // 4b. CountPredArgmax — restituisce int64
-            let cp_out = self.count_pred_argmax.run(ort::inputs![
+            let cp_out = g_count_pred_argmax.run(ort::inputs![
                 "pc_emb" => Tensor::from_array(pc_emb)?
-            ]?)?;
+            ])?;
             let pred_count = cp_out.values().next()
                 .ok_or_else(|| anyhow::anyhow!("count_pred_argmax: nessun output"))?
-                .try_extract_tensor::<i64>()?.into_owned()[[0]] as usize;
+                .try_extract_array::<i64>()?.into_owned()[[0]] as usize;
 
             if pred_count == 0 {
                 continue;
@@ -786,12 +856,14 @@ impl Gliner2EngineV2 {
                         padded[[0, m, 0, d]] = half::f16::from_f32(field_embs[[m, d]]);
                     }
                 }
-                let cls_out = self.classifier.run(ort::inputs![
+                let cls_out = g_classifier.run(ort::inputs![
                     "span_embeddings" => Tensor::from_array(padded)?
-                ]?)?;
-                let logits = cls_out.values().next()
-                    .ok_or_else(|| anyhow::anyhow!("classifier: nessun output"))?
-                    .try_extract_tensor::<f32>()?.into_owned();
+                ])?;
+                let logits = {
+                    let v = cls_out.values().next()
+                        .ok_or_else(|| anyhow::anyhow!("classifier: nessun output"))?;
+                    extract_f32!(v)
+                };
 
                 let mut exp_sum = 0.0f32;
                 let exps: Vec<f32> = (0..num_labels).map(|m| {
@@ -814,23 +886,27 @@ impl Gliner2EngineV2 {
             }
 
             // 4d. CountLSTMFixed — output sempre [MAX_COUNT, M, H]
-            let cl_out = self.count_lstm_fixed.run(ort::inputs![
+            let cl_out = g_count_lstm_fixed.run(ort::inputs![
                 "field_embs" => Tensor::from_array(field_embs)?
-            ]?)?;
-            let struct_proj = cl_out.values().next()
-                .ok_or_else(|| anyhow::anyhow!("count_lstm_fixed: nessun output"))?
-                .try_extract_tensor::<f32>()?.into_owned();
+            ])?;
+            let struct_proj = {
+                let v = cl_out.values().next()
+                    .ok_or_else(|| anyhow::anyhow!("count_lstm_fixed: nessun output"))?;
+                extract_f32!(v)
+            };
             // struct_proj: [MAX_COUNT, M, H] — usiamo solo [:pred_count]
 
             // 4e. Scorer — restituisce probabilità sigmoid già calcolate
             //     entity_scores: [MAX_COUNT, num_words, max_width, M]
-            let sc_out = self.scorer.run(ort::inputs![
+            let sc_out = g_scorer.run(ort::inputs![
                 "span_embeddings" => Tensor::from_array(span_embs.clone())?,
                 "struct_proj"     => Tensor::from_array(struct_proj)?
-            ]?)?;
-            let scores = sc_out.values().next()
-                .ok_or_else(|| anyhow::anyhow!("scorer: nessun output"))?
-                .try_extract_tensor::<f32>()?.into_owned();
+            ])?;
+            let scores = {
+                let v = sc_out.values().next()
+                    .ok_or_else(|| anyhow::anyhow!("scorer: nessun output"))?;
+                extract_f32!(v)
+            };
             // scores: [MAX_COUNT, num_words, max_width, M]
 
             // 4f. NMS + soglia (identico al v1, ma ora scores sono già sigmoid)
