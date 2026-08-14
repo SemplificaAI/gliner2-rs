@@ -221,6 +221,13 @@ let engine = Gliner2Engine::from_pretrained(
 
 Licensed under the [Apache License, Version 2.0](LICENSE).  
 This project was developed by Dario Finardi at Semplifica s.r.l.
+
+See [`NOTICE`](NOTICE) for attribution. In short: the engine is original
+Rust code, but the **model weights are not distributed here**. It loads
+ONNX exports of GLiNER2 models published by
+[Knowledgator](https://huggingface.co/knowledgator), which stay under
+their publisher's licence — check it before shipping them inside an
+application. Converting a model to ONNX does not change its licence.
 # Release Notes
 
 ## [v0.5.0] - 2026-04-23

@@ -1,0 +1,28 @@
+gliner2-rs
+Copyright 2026 Dario Finardi, Semplifica s.r.l.
+
+Licensed under the Apache License, Version 2.0 — see LICENSE.
+
+This is an independent Rust implementation, not a port of existing code:
+the inference engine was written from scratch against ONNX Runtime. The
+per-file copyright headers state the same.
+
+What it does depend on, and what stays under its own terms:
+
+  - GLiNER2 model weights — not distributed with this repository.
+    The engine loads ONNX exports of GLiNER2 models published by
+    Knowledgator (https://huggingface.co/knowledgator). The weights
+    remain subject to the licence of their publisher; check it before
+    redistributing them with an application.
+
+  - The ONNX conversion scripts under onnx_conversion_scripts/ operate on
+    those upstream models and produce derived artefacts. Converting a
+    model does not change its licence.
+
+  - ONNX Runtime (https://github.com/microsoft/onnxruntime) — MIT,
+    linked at runtime, not redistributed from here.
+
+GLiNER (Generalist Model for Named Entity Recognition) is the work of
+Urchade Zaratiana et al.; GLiNER2 is developed by Knowledgator. This
+project implements inference for those models and claims no ownership
+over them.
