@@ -389,7 +389,7 @@ impl Gliner2EngineV1 {
         tasks: &[SchemaTask],
         params: Option<InferenceParams>
     ) -> anyhow::Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
-        let current_mode = *self.execution_mode.read().unwrap();
+        let current_mode = *self.execution_mode.read().unwrap_or_else(|p| p.into_inner());
         
         match current_mode {
             ExecutionMode::IoBinding => {
@@ -397,7 +397,7 @@ impl Gliner2EngineV1 {
                     Ok(res) => Ok(res),
                     Err(GlinerError::OomDeviceBinding(msg)) => {
                         eprintln!("[GLiNER2] OOM in IoBinding detected. Falling back to Standard Mode. Details: {}", msg);
-                        *self.execution_mode.write().unwrap() = ExecutionMode::Standard;
+                        *self.execution_mode.write().unwrap_or_else(|p| p.into_inner()) = ExecutionMode::Standard;
                         self.extract_standard(text, tasks, params)
                     },
                     Err(other) => Err(anyhow::anyhow!(other)),

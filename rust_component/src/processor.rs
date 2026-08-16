@@ -217,7 +217,13 @@ impl SchemaTransformer {
         
         let mut combined_to_final_map = HashMap::new();
         
-        let cls_id = self.tokenizer.encode("[CLS]", false).unwrap().get_ids()[0] as i64;
+        // Niente unwrap: un tokenizer.json corrotto o un vocabolario senza
+        // i token speciali deve produrre un errore leggibile, non un panic
+        // dentro spawn_blocking che uccide l'intera analisi (NER-2).
+        let cls_id = self.tokenizer.encode("[CLS]", false)
+            .map_err(|e| anyhow!("encode [CLS]: {e}"))?
+            .get_ids().first().copied()
+            .ok_or_else(|| anyhow!("[CLS] assente dal vocabolario"))? as i64;
         final_input_ids.push(cls_id);
         final_attention_mask.push(1);
         let mut current_subword_idx = 1;
@@ -243,7 +249,10 @@ impl SchemaTransformer {
             }
         }
         
-        let sep_id = self.tokenizer.encode("[SEP]", false).unwrap().get_ids()[0] as i64;
+        let sep_id = self.tokenizer.encode("[SEP]", false)
+            .map_err(|e| anyhow!("encode [SEP]: {e}"))?
+            .get_ids().first().copied()
+            .ok_or_else(|| anyhow!("[SEP] assente dal vocabolario"))? as i64;
         final_input_ids.push(sep_id);
         final_attention_mask.push(1);
         
@@ -252,10 +261,12 @@ impl SchemaTransformer {
 
         let mut tasks = Vec::new();
         for (task_name, task_type, labels, prompt_idx, field_indices) in task_mappings_temp {
-            let real_prompt_idx = *combined_to_final_map.get(&prompt_idx).unwrap();
+            let real_prompt_idx = *combined_to_final_map.get(&prompt_idx)
+                .ok_or_else(|| anyhow!("prompt_idx {prompt_idx} fuori mappa (invariante rotta)"))?;
             let real_field_indices: Vec<usize> = field_indices.iter()
-                .map(|idx| *combined_to_final_map.get(idx).unwrap())
-                .collect();
+                .map(|idx| combined_to_final_map.get(idx).copied()
+                    .ok_or_else(|| anyhow!("field_idx {idx} fuori mappa (invariante rotta)")))
+                .collect::<Result<_>>()?;
                 
             tasks.push(TaskMapping {
                 task_name,

@@ -246,7 +246,7 @@ impl Gliner2EngineV2 {
                 ]).map_err(oa)?;
             }
 
-            println!("  Caricamento {:?}", path.file_name().unwrap());
+            println!("  Caricamento {:?}", path.file_name().unwrap_or_default());
             builder.commit_from_file(path)
                 .map_err(|e| anyhow::anyhow!("Errore caricamento {:?}: {}", path, e))
         };
@@ -287,7 +287,7 @@ impl Gliner2EngineV2 {
         tasks: &[SchemaTask],
         params: Option<InferenceParams>,
     ) -> Result<(Vec<ExtractedEntity>, Vec<ExtractedRelation>, Vec<ExtractedClassification>)> {
-        let mode = *self.execution_mode.read().unwrap();
+        let mode = *self.execution_mode.read().unwrap_or_else(|p| p.into_inner());
         match mode {
             ExecutionMode::IoBinding => {
                 match self.extract_iobinding(text, tasks, params) {
@@ -297,7 +297,7 @@ impl Gliner2EngineV2 {
                             "[GLiNER2-v2] OOM IOBinding, fallback Standard. Dettagli: {}",
                             msg
                         );
-                        *self.execution_mode.write().unwrap() = ExecutionMode::Standard;
+                        *self.execution_mode.write().unwrap_or_else(|p| p.into_inner()) = ExecutionMode::Standard;
                         self.extract_standard(text, tasks, params)
                     }
                     Err(other) => Err(anyhow::anyhow!(other)),
@@ -590,7 +590,7 @@ impl Gliner2EngineV2 {
 
                 let (best_idx, best_score) = exps.iter().enumerate()
                     .map(|(i, &e)| (i, e / exp_sum))
-                    .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                    .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
                     .unwrap_or((0, 0.0));
 
                 final_classifications.push(ExtractedClassification {
@@ -874,7 +874,7 @@ impl Gliner2EngineV2 {
 
                 let (best_idx, best_score) = exps.iter().enumerate()
                     .map(|(i, &e)| (i, e / exp_sum))
-                    .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                    .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
                     .unwrap_or((0, 0.0));
 
                 final_classifications.push(ExtractedClassification {
