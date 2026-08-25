@@ -13,6 +13,37 @@
 // limitations under the License.
 
 //! Module for preprocessing and tokenization of text and schemas.
+//!
+//! Replicates `gliner2/processor.py::SchemaTransformer`. The token layout of a
+//! schema group is exactly:
+//!
+//! ```text
+//! ["(", "[P]", prompt_str, "("] + [child_prefix, field_name] * N + [")", ")"]
+//! ```
+//!
+//! with `child_prefix` being `[E]` for entities, `[R]` for relations and `[L]`
+//! for classifications. Groups are separated by `[SEP_STRUCT]`, and
+//! `[SEP_TEXT]` separates the schema from the text.
+//!
+//! Three details this module got wrong before 0.5.1, each of which misaligned
+//! the gathered embeddings with respect to what the model was trained on:
+//!
+//! 1. **No `[CLS]`/`[SEP]`.** The sequence starts directly at `(` and ends with
+//!    the last word of the text. Wrapping the input in `[CLS]`/`[SEP]` fed the
+//!    model a format it never saw during training.
+//!
+//! 2. **Field indices point at the marker, not at the label.** Python collects
+//!    `schema_special_positions` at the positions of `[P]` and of the
+//!    `child_prefix` markers; this module used to record the position of the
+//!    field *name*, i.e. marker + 1. `[P]` was already correct, so the two were
+//!    inconsistent with each other.
+//!
+//! 3. **Text words must be lower-cased.** `_tokenize_text` calls
+//!    `word_splitter(text, lower=True)`. Character offsets stay those of the
+//!    original text — lower-casing the source string first is unsafe, because
+//!    Unicode case folding can change its length and corrupt the offsets.
+//!
+//! The ground truth is pinned by `tests::ground_truth_prompt_layout`.
 
 use tokenizers::Tokenizer;
 use anyhow::{anyhow, Result};
@@ -90,10 +121,13 @@ impl WhitespaceTokenSplitter {
             .collect()
     }
 
-    pub fn split_with_offsets<'a>(&self, text: &'a str) -> Vec<(&'a str, usize, usize)> {
+    /// Mirrors `WhitespaceTokenSplitter.__call__(text, lower=True)`: matching
+    /// happens on the **original** text so offsets index the caller's string,
+    /// and only the token value is lower-cased.
+    pub fn split_with_offsets(&self, text: &str) -> Vec<(String, usize, usize)> {
         self.re
             .find_iter(text)
-            .map(|m| (m.as_str(), m.start(), m.end()))
+            .map(|m| (m.as_str().to_lowercase(), m.start(), m.end()))
             .collect()
     }
 }
@@ -130,8 +164,10 @@ impl SchemaTransformer {
                     combined_tokens.push("(");
                     
                     for label in entity_labels {
-                        combined_tokens.push(E_TOKEN);
+                        // position of the marker itself, matching Python's
+                        // `schema_marker_orig_indices`
                         field_indices.push(combined_tokens.len());
+                        combined_tokens.push(E_TOKEN);
                         combined_tokens.push(label.as_str());
                         labels.push(label.clone());
                     }
@@ -154,8 +190,10 @@ impl SchemaTransformer {
                     combined_tokens.push("(");
                     
                     for field in fields {
-                        combined_tokens.push(R_TOKEN);
+                        // position of the marker itself, matching Python's
+                        // `schema_marker_orig_indices`
                         field_indices.push(combined_tokens.len());
+                        combined_tokens.push(R_TOKEN);
                         combined_tokens.push(field.as_str());
                         labels.push(field.clone());
                     }
@@ -178,8 +216,10 @@ impl SchemaTransformer {
                     combined_tokens.push("(");
                     
                     for label in cls_labels {
-                        combined_tokens.push(L_TOKEN); // or C_TOKEN? gliner2 uses L_TOKEN? Let's check python logic. Actually wait.
+                        // position of the marker itself, matching Python's
+                        // `schema_marker_orig_indices`
                         field_indices.push(combined_tokens.len());
+                        combined_tokens.push(L_TOKEN);
                         combined_tokens.push(label.as_str());
                         labels.push(label.clone());
                     }
@@ -206,7 +246,7 @@ impl SchemaTransformer {
         
         let mut word_to_char_maps = Vec::new();
         for (w, start_char, end_char) in &words_with_offsets {
-            combined_tokens.push(*w);
+            combined_tokens.push(w.as_str());
             word_to_char_maps.push((*start_char, *end_char));
         }
         let text_end_idx = combined_tokens.len();
@@ -217,10 +257,9 @@ impl SchemaTransformer {
         
         let mut combined_to_final_map = HashMap::new();
         
-        let cls_id = self.tokenizer.encode("[CLS]", false).unwrap().get_ids()[0] as i64;
-        final_input_ids.push(cls_id);
-        final_attention_mask.push(1);
-        let mut current_subword_idx = 1;
+        // gliner2 does not wrap the prompt in [CLS]/[SEP]: the sequence starts
+        // at the first `(` of the first schema group.
+        let mut current_subword_idx = 0;
 
         for (i, token) in combined_tokens.iter().enumerate() {
             combined_to_final_map.insert(i, current_subword_idx);
@@ -242,10 +281,6 @@ impl SchemaTransformer {
                 word_to_token_maps.push((start_sub, end_sub));
             }
         }
-        
-        let sep_id = self.tokenizer.encode("[SEP]", false).unwrap().get_ids()[0] as i64;
-        final_input_ids.push(sep_id);
-        final_attention_mask.push(1);
         
         let text_real_start = word_to_token_maps.first().map(|v| v.0).unwrap_or(0);
         let text_real_end = word_to_token_maps.last().map(|v| v.1).unwrap_or(0);
@@ -275,5 +310,85 @@ impl SchemaTransformer {
             word_to_token_maps,
             word_to_char_maps,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Locates a gliner2 `tokenizer.json`. Model directories are gitignored, so
+    /// the test skips instead of failing when none is available.
+    fn tokenizer_path() -> Option<std::path::PathBuf> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        [
+            "models/gliner2-multi-v1-onnx-v2/tokenizer.json",
+            "models/gliner2-multi-finetuned-v2/tokenizer.json",
+            "models/iobinding_test/tokenizer.json",
+            "../models/fastino_gliner2_multi_v1_fp32/tokenizer.json",
+            "../models/semplifica_gliner2_multi_v1_fp32/tokenizer.json",
+        ]
+        .iter()
+        .map(|p| root.join(p))
+        .find(|p| p.exists())
+    }
+
+    /// Ground truth produced by running gliner2 2.0.0 on
+    /// `fastino/GLiNER2-Guardrails-PII-Multi`:
+    ///
+    /// ```text
+    /// schema_tokens_list = [
+    ///   ['(', '[P]', 'entities', '(', '[E]', 'person', '[E]', 'organization', '[E]', 'location', ')', ')'],
+    ///   ['(', '[P]', 'sentiment', '(', '[L]', 'positive', '[L]', 'negative', ')', ')'],
+    /// ]
+    /// schema_special_positions  = [[1, 6, 8, 10], [18, 21, 23]]
+    /// text_word_first_positions = [31, 33, 35, 36, 37, 38, 40, 43]
+    /// ```
+    ///
+    /// The `gliner2-multi-v1` tokenizer yields the same positions for this input.
+    #[test]
+    fn ground_truth_prompt_layout() {
+        let Some(path) = tokenizer_path() else {
+            eprintln!("no tokenizer.json available, test skipped");
+            return;
+        };
+        let tokenizer = Tokenizer::from_file(&path).expect("tokenizer");
+        let transformer = SchemaTransformer::new(tokenizer);
+
+        let tasks = vec![
+            SchemaTask::Entities(vec![
+                "person".to_string(),
+                "organization".to_string(),
+                "location".to_string(),
+            ]),
+            SchemaTask::Classifications(
+                "sentiment".to_string(),
+                vec!["positive".to_string(), "negative".to_string()],
+            ),
+        ];
+        let record = transformer
+            .transform("Mario Rossi lavora ad Apple a Cupertino.", &tasks)
+            .expect("transform");
+
+        // `[P]` and the child markers, not the label names
+        assert_eq!(record.tasks[0].prompt_tok_idx, 1);
+        assert_eq!(record.tasks[0].field_tok_indices, vec![6, 8, 10]);
+        assert_eq!(record.tasks[1].prompt_tok_idx, 18);
+        assert_eq!(record.tasks[1].field_tok_indices, vec![21, 23]);
+
+        // no [CLS] prefix: the first word starts where Python says it does
+        let word_starts: Vec<usize> =
+            record.word_to_token_maps.iter().map(|(s, _)| *s).collect();
+        assert_eq!(word_starts, vec![31, 33, 35, 36, 37, 38, 40, 43]);
+        assert_eq!(record.word_to_token_maps.len(), 8);
+
+        // no [SEP] suffix either
+        assert_eq!(record.input_ids.len(), 45);
+        assert_eq!(record.input_ids.len(), record.attention_mask.len());
+
+        // offsets index the original text, so casing survives
+        let text = "Mario Rossi lavora ad Apple a Cupertino.";
+        let (s, e) = record.word_to_char_maps[0];
+        assert_eq!(&text[s..e], "Mario");
     }
 }
