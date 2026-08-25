@@ -1,0 +1,53 @@
+[
+  {"name": "en_basic",
+   "text": "Please contact Mario Rossi at mario.rossi@example.com or +39 340 1234567.",
+   "entities": ["person", "email", "phone_number"]},
+
+  {"name": "en_financial",
+   "text": "Wire the amount to IBAN IT60X0542811101000000123456, account holder Laura Bianchi, before 15 March 2024.",
+   "entities": ["person", "iban", "date"]},
+
+  {"name": "it_medical",
+   "text": "Il paziente Giuseppe Verdi, nato il 12/04/1958 a Milano, codice fiscale VRDGPP58D12F205X, e' seguito dalla dottoressa Francesca Neri.",
+   "entities": ["person", "date", "location", "national_id", "medical_professional"]},
+
+  {"name": "fr_address",
+   "text": "Madame Camille Dubois habite au 14 rue de Rivoli, 75001 Paris, et son numero de securite sociale est 2 85 12 75 116 001 42.",
+   "entities": ["person", "address", "location", "national_id"]},
+
+  {"name": "de_employment",
+   "text": "Herr Andreas Muller arbeitet seit 2019 bei Siemens AG in Munchen und verdient 78.000 EUR im Jahr.",
+   "entities": ["person", "organization", "location", "date", "amount"]},
+
+  {"name": "es_contact",
+   "text": "Puedes escribir a Ana Maria Lopez Garcia en ana.lopez@correo.es o llamar al 600 123 456.",
+   "entities": ["person", "email", "phone_number"]},
+
+  {"name": "no_entities",
+   "text": "The weather today is mild and the meeting has been postponed until further notice.",
+   "entities": ["person", "email", "phone_number", "iban"]},
+
+  {"name": "repeated_entity",
+   "text": "Mario Rossi called Mario Rossi's office, then Mario Rossi sent an email to Mario Rossi.",
+   "entities": ["person"]},
+
+  {"name": "adjacent_entities",
+   "text": "Alice Johnson Bob Smith Carol White attended the meeting in Rome Milan Naples.",
+   "entities": ["person", "location"]},
+
+  {"name": "accents_unicode",
+   "text": "Nicolo D'Ambrosio-Sforza e Zoe Muller-Lowenstein si sono incontrati a Zurigo per firmare l'accordo.",
+   "entities": ["person", "location"]},
+
+  {"name": "nested_overlap",
+   "text": "Contact Dr. Elizabeth Anne Montgomery-Fairfax at the London office.",
+   "entities": ["person", "first_name", "last_name", "location"]},
+
+  {"name": "many_labels",
+   "text": "Sarah Connor, born 1984-05-12 in Los Angeles, SSN 123-45-6789, card 4111 1111 1111 1111, email sarah@skynet.dev, IP 192.168.1.42.",
+   "entities": ["person", "date", "location", "national_id", "credit_card", "email", "ip_address", "phone_number", "iban", "organization", "address", "username"]},
+
+  {"name": "long_text",
+   "text": "The quarterly compliance review covered several incidents. On 3 February 2024, an employee named Thomas Weber accidentally shared a spreadsheet containing customer records with an external vendor based in Frankfurt. The file included names such as Julia Schneider and Marco Ferrari, together with their email addresses julia.schneider@example.de and marco.ferrari@example.it, and phone numbers +49 170 5551234 and +39 328 7654321. The data protection officer, Anna Kowalski, opened an investigation on 5 February 2024 and reported the breach to the supervisory authority within the statutory seventy-two hour window. Remediation included revoking the vendor's access, rotating the affected credentials, and retraining the finance team in Frankfurt and Milan.",
+   "entities": ["person", "email", "phone_number", "location", "date", "job_title"]}
+]

@@ -1,0 +1,20 @@
+[package]
+name = "gliner2-privacy"
+version = "0.1.0"
+description = "PII entity schemas and redaction utilities for GLiNER2 privacy filtering"
+keywords = ["nlp", "ner", "pii", "privacy", "gliner"]
+categories = ["science", "text-processing"]
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+gliner2-core = { version = "0.1.0", path = "../gliner2-core" }
+anyhow.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+serde.workspace = true
