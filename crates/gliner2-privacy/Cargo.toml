@@ -2,6 +2,7 @@
 name = "gliner2-privacy"
 version = "0.1.0"
 description = "PII entity schemas and redaction utilities for GLiNER2 privacy filtering"
+readme = "README.md"
 keywords = ["nlp", "ner", "pii", "privacy", "gliner"]
 categories = ["science", "text-processing"]
 edition.workspace = true

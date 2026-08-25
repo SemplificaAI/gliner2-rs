@@ -4,6 +4,7 @@ version = "0.5.2"
 edition = "2021"
 authors = ["Dario Finardi <df@dariofinardi.it>"]
 description = "Native Rust inference engine for GLiNER2 models using ONNX Runtime."
+readme = "README.md"
 license = "Apache-2.0"
 repository = "https://github.com/dariofinardi/gliner2-rs"
 homepage = "https://edito-pdf.com"

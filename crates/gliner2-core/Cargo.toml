@@ -2,6 +2,7 @@
 name = "gliner2-core"
 version = "0.1.0"
 description = "GLiNER2 span-architecture inference engine on ONNX Runtime"
+readme = "README.md"
 keywords = ["nlp", "ner", "onnx", "inference", "gliner"]
 categories = ["science", "text-processing"]
 edition.workspace = true

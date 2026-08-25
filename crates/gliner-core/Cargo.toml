@@ -2,6 +2,7 @@
 name = "gliner-core"
 version = "0.1.0"
 description = "Shared foundation for the GLiNER Rust engines: prompt construction, ONNX Runtime helpers, overlap policies"
+readme = "README.md"
 keywords = ["nlp", "ner", "onnx", "gliner"]
 categories = ["science", "text-processing"]
 edition.workspace = true

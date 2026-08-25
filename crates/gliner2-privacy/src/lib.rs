@@ -113,40 +113,63 @@ pub fn all_labels_task() -> SchemaTask {
 
 /// Replaces every detected span with `[LABEL]`.
 ///
-/// Rewrites from the end backwards so earlier byte offsets stay valid, and skips
-/// entities whose spans overlap an already-rewritten stretch — the engine can
-/// return the same text under two labels, since labels are decoded
-/// independently, and rewriting both would corrupt the output.
+/// See [`redact_with`] for the overlap rule and for custom placeholders.
 pub fn redact(text: &str, entities: &[Entity]) -> String {
     redact_with(text, entities, |label| format!("[{}]", label.to_uppercase()))
 }
 
 /// [`redact`] with a caller-supplied placeholder, for pseudonymisation schemes
 /// that need stable identifiers rather than a bare label.
+///
+/// ## How overlaps are resolved
+///
+/// Labels are decoded independently, so one stretch of text routinely arrives
+/// under several of them. `Giuseppe Verdi` comes back as `full_name` at 99.8%,
+/// as `person` at 91.6%, and separately as `first_name` + `last_name`. Only one
+/// rewrite can happen, so the **highest-scoring** span wins and anything
+/// overlapping it is dropped — here, `[FULL_NAME]` rather than
+/// `[FIRST_NAME] [LAST_NAME]`.
+///
+/// Resolving by score rather than by position matters: doing it positionally
+/// lets a short, later, lower-scoring span pre-empt the long high-scoring one
+/// that contains it, so the output depends on where the entity sits in the
+/// sentence. Either way nothing leaks, but only one of the two is predictable.
+///
+/// The rewrite itself then runs from the end backwards, so earlier byte offsets
+/// stay valid.
 pub fn redact_with<F>(text: &str, entities: &[Entity], placeholder: F) -> String
 where
     F: Fn(&str) -> String,
 {
-    let mut ordered: Vec<&Entity> = entities.iter().collect();
-    // Descending by start, so each rewrite leaves the offsets before it intact.
-    // Ties break on the longer span, which then swallows the shorter one.
-    ordered.sort_by(|a, b| {
-        b.char_start
-            .cmp(&a.char_start)
+    // 1. keep a non-overlapping set, best score first
+    let mut ranked: Vec<&Entity> = entities
+        .iter()
+        .filter(|e| e.char_start < e.char_end && e.char_end <= text.len())
+        .collect();
+    ranked.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
             .then((b.char_end - b.char_start).cmp(&(a.char_end - a.char_start)))
+            .then(a.char_start.cmp(&b.char_start))
+            .then(a.label.cmp(&b.label))
     });
 
+    let mut kept: Vec<&Entity> = Vec::new();
+    for cand in ranked {
+        let overlaps = kept
+            .iter()
+            .any(|k| cand.char_start < k.char_end && k.char_start < cand.char_end);
+        if !overlaps {
+            kept.push(cand);
+        }
+    }
+
+    // 2. rewrite from the end, so the offsets ahead of each edit stay valid
+    kept.sort_by(|a, b| b.char_start.cmp(&a.char_start));
     let mut out = text.to_string();
-    let mut last_start = usize::MAX;
-    for e in ordered {
-        if e.char_end > last_start {
-            continue; // overlaps a stretch already rewritten
-        }
-        if e.char_start >= e.char_end || e.char_end > out.len() {
-            continue;
-        }
+    for e in kept {
         out.replace_range(e.char_start..e.char_end, &placeholder(&e.label));
-        last_start = e.char_start;
     }
     out
 }
@@ -198,11 +221,29 @@ mod tests {
     fn overlapping_labels_are_rewritten_once() {
         // labels are decoded independently, so the same span can arrive twice
         let text = "Dr. Francesca Neri";
-        let out = redact(
-            text,
-            &[entity("medical_professional", 4, 18), entity("person", 4, 18)],
+        let mut a = entity("medical_professional", 4, 18);
+        a.score = 0.95;
+        let mut b = entity("person", 4, 18);
+        b.score = 0.91;
+        assert_eq!(redact(text, &[a, b]), "Dr. [MEDICAL_PROFESSIONAL]");
+    }
+
+    #[test]
+    fn the_best_scoring_span_wins_regardless_of_position() {
+        // "Giuseppe Verdi" as full_name contains "Giuseppe" and "Verdi".
+        // Resolving positionally would let the later, shorter `last_name`
+        // pre-empt the containing span; resolving by score does not.
+        let text = "Il paziente Giuseppe Verdi.";
+        let mut full = entity("full_name", 12, 26);
+        full.score = 0.998;
+        let mut first = entity("first_name", 12, 20);
+        first.score = 0.99;
+        let mut last = entity("last_name", 21, 26);
+        last.score = 0.99;
+        assert_eq!(
+            redact(text, &[first, last, full]),
+            "Il paziente [FULL_NAME]."
         );
-        assert_eq!(out, "Dr. [MEDICAL_PROFESSIONAL]");
     }
 
     #[test]
