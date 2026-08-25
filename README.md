@@ -2,62 +2,224 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-dariofinardi/gliner2--rs-blue?style=flat-square&logo=github)](https://github.com/dariofinardi/gliner2-rs)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Version](https://img.shields.io/badge/Version-0.5.2-brightgreen.svg)](https://github.com/dariofinardi/gliner2-rs)
 [![Status](https://img.shields.io/badge/Status-Beta-blue.svg)](https://github.com/dariofinardi/gliner2-rs)
 
-**Native Rust Inference Engine for GLiNER2**
+**Native Rust inference for GLiNER2 on ONNX Runtime**
 
-`gliner2-rs` is a high-performance, Zero-Python inference engine designed to execute **GLiNER2** models using **ONNX Runtime**. It allows for extracting Named Entities (NER), Relations, and Global Classifications natively in Rust with maximum speed, supporting both CPU and NVIDIA GPU (CUDA) via hardware-accelerated Tensor operations.
-
-This crate completely replicates the advanced sub-word tokenization and prompt-generation logic of GLiNER2's `processor.py` internally, using the official `tokenizers` crate for zero-overhead BPE tokenization.
+Extract entities, relations and classifications from text with no Python at
+inference time. This repository is a Cargo workspace: a shared foundation, the
+span engine, and thin model-specific extensions on top.
 
 Written by **Dario Finardi**. Published by **Jugaad s.r.l.**, which uses it in
-production inside **Edito** and **Omissis** — [edito-pdf.com](https://edito-pdf.com).
+production inside **Edito** and **Omissis** —
+[edito-pdf.com](https://edito-pdf.com).
 
-*Copyright 2026 Dario Finardi. Published by Jugaad s.r.l. — Apache License 2.0*
+For **GLiNER2.5** use [gliner25-rs](https://github.com/dariofinardi/gliner25-rs)
+instead. Its `boundary` architecture shares only the foundation with this one,
+and its spans are half-open rather than inclusive — mixing the conventions is a
+silent off-by-one.
 
-## 🚀 Features
+---
 
-### 🐛 What's Fixed in 0.5.2 (Prompt Layout)
+## The crates
 
-`SchemaTransformer` diverged from `gliner2/processor.py` on three points, each
-of which misaligned the gathered embeddings against the format the model was
-trained on: the prompt was wrapped in `[CLS]`/`[SEP]`, which gliner2 never
-emits; field indices pointed at the label name instead of the `[E]`/`[R]`/`[L]`
-marker before it; and text words were not lower-cased, though `_tokenize_text`
-calls `word_splitter(text, lower=True)`.
-
-Measured against the PyTorch reference over 13 cases in 6 languages:
-
-| | spans matching PyTorch | max score delta |
+| crate | what it is | docs |
 |---|---|---|
-| before | 60/61 | 0.2215 |
-| after | **61/61** | **0.0031** |
+| [`gliner-core`](crates/gliner-core) | prompt construction, ONNX Runtime helpers, overlap policies | [README](crates/gliner-core/README.md) |
+| [`gliner2-core`](crates/gliner2-core) | the span inference engine | [README](crates/gliner2-core/README.md) |
+| [`gliner2-guardrails`](crates/gliner2-guardrails) | LLM safety moderation schemas | [README](crates/gliner2-guardrails/README.md) |
+| [`gliner2-privacy`](crates/gliner2-privacy) | PII schemas and redaction | [README](crates/gliner2-privacy/README.md) |
+| [`gliner2-inference`](crates/gliner2-inference) | the original engine: V1 pipeline, HuggingFace downloader | [README](crates/gliner2-inference/README.md) |
 
-Before the fix the engine missed a `location` outright, invented a `last_name`,
-and — the one that matters for redaction — scored the Italian *codice fiscale*
-`VRDGPP58D12F205X` at 0.5016 against a 0.5 threshold, a coin flip on leaking a
-national identifier. Ground truth is pinned by
-`processor::tests::ground_truth_prompt_layout`.
+`gliner2-inference` predates the split and stays as it is: edition 2021, its own
+V1 fallback and `from_pretrained`. Use it if you want models pulled from the Hub
+automatically. Use `gliner2-core` and the extensions for everything else.
 
-### ⚡ What's New in 0.5.0 (Dynamic Inference Parameters)
-- **Zero-Copy PCIe bypass**: Replaces CPU manipulations with `Gather`, `ArgMax`, and `MatMul` operations fused directly into the ONNX graphs. Data now stays inside GPU/NPU VRAM, speeding up performance by ~30% (currently tested on NVIDIA RTX GPUs and AMD Ryzen CPUs).
-- **Automatic Engine Facade**: `Gliner2Engine` acts as an intelligent wrapper. It detects whether the model folder contains V1 or V2 files, automatically switching to the optimal execution pipeline. **No code changes are required** to use V2!
-- **Smart HF Downloader**: `Gliner2Engine::from_pretrained` now detects your OS. On CUDA/ROCm platforms it downloads the `_iobinding` variants, while on macOS (Apple Silicon/CoreML) it safely downloads the standard `_fp16` fallback. This **halves bandwidth and disk usage**!
-- **New V2 ONNX Exporter**: We provide `export_gliner2_onnx_fragments_v2.py` which automatically generates `fp32`, `fp16`, and `fp16_iobinding` (Full IO Types) variants of the fusions.
+Start with the extension that matches your model — they carry the label
+vocabularies and helpers, and pull the engine in for you.
 
-### Key Features
+---
 
-- **End-to-End Execution**: Full recreation of the GLiNER2 inference loop natively in Rust.
-- **Multi-Task Extraction**: Supports Entity Extraction, Relation Extraction, and Text Classifications in a single forward pass.
-- **Hardware Accelerated**: Dynamically uses QNN (Qualcomm NPU), CoreML (Apple Silicon), OpenVINO (Intel/AMD), CUDA Execution Provider if an NVIDIA GPU is available, falling back to optimized XNNPACK/CPU execution.
-- **FP16 & FP32 Support**: Fully compatible with Half-Precision (Float16) ONNX exports to cut memory footprints in half.
-- **Zero-Copy Tensor Flow**: Direct injection of raw hidden states across multiple neural network slices without CPU-GPU memory swaps.
-- **Built-in NMS**: Automatic Non-Maximum Suppression (NMS) to elegantly remove overlapping fictions entities based on their probabilities.
+## Model compatibility
+
+Weights are **not** ours. GLiNER2 is developed by [Fastino](https://fastino.ai)
+(arXiv:2507.18546); the GLiNER line it descends from is the work of Urchade
+Zaratiana et al. Converting a model changes neither its licence nor its
+ownership — see [`NOTICE`](NOTICE).
+
+| model | ONNX export | export layout | crate to use |
+|---|---|---|---|
+| [`fastino/gliner2-multi-v1`](https://huggingface.co/fastino/gliner2-multi-v1) | [`jugaadsrl/gliner2-multi-v1-onnx`](https://huggingface.co/jugaadsrl/gliner2-multi-v1-onnx) | legacy | `gliner2-core` |
+| [`fastino/gliner2-privacy-filter-PII-multi`](https://huggingface.co/fastino/gliner2-privacy-filter-PII-multi) | [`jugaadsrl/gliner2-privacy-filter-PII-multi-onnx`](https://huggingface.co/jugaadsrl/gliner2-privacy-filter-PII-multi-onnx) | legacy | `gliner2-privacy` |
+| [`fastino/GLiNER2-Guardrails-PII-Multi`](https://huggingface.co/fastino/GLiNER2-Guardrails-PII-Multi) | [`jugaadsrl/GLiNER2-Guardrails-PII-Multi-onnx`](https://huggingface.co/jugaadsrl/GLiNER2-Guardrails-PII-Multi-onnx) | flat | `gliner2-guardrails` |
+| `fastino/gliner2-base-v1` and local fine-tunes | export it yourself | flat | `gliner2-core` |
+
+Any GLiNER2 **span** checkpoint works: the engine reads `max_width` and
+`MAX_COUNT` from the exported graphs rather than assuming them, so a checkpoint
+exported with different parameters stays usable.
+
+### The two export layouts
+
+Both are read, and the difference is invisible to callers. Point the config at
+the directory and it works.
+
+```text
+flat, from export_span_v3.py          legacy, published earlier on the Hub
+  encoder_fp32.onnx                     fp32_v2/encoder_fp32.onnx
+  encoder_fp16.onnx                     fp16_v2/encoder_fp16.onnx
+  encoder_fp16_iobinding.onnx           fp16_v2/encoder_fp16_iobinding.onnx
+  …                                     …
+  tokenizer.json                        fp32_v2/tokenizer.json
+                                        fp16_v2/tokenizer.json
+```
+
+Legacy exports also carry an older `classifier` signature,
+`[batch, num_labels, max_width, H]` instead of `[num_labels, H]`. The engine
+detects it from the graph and shapes the input accordingly; check which one it
+found with `engine.classifier_layout()`.
+
+### Precision
+
+| suffix | I/O | use for |
+|---|---|---|
+| `_fp32` | FP32 | universal fallback, OpenVINO, CPU |
+| `_fp16` | FP32 (`keep_io_types=True`) | CoreML, which demands FP32 I/O |
+| `_fp16_iobinding` | FP16 | CUDA, ROCm, QNN — see the note below |
+
+Selected automatically per platform — `_fp16_iobinding` on Linux and Windows,
+`_fp16` on macOS — and overridable with
+`GLINER2_PRECISION=fp32|fp16|fp16_iobinding`.
+
+### A note on `_fp16_iobinding`
+
+The suffix names what the variant was *exported for*, not what this engine does
+with it. `keep_io_types=False` leaves the graph inputs and outputs in FP16 as
+well as the weights, which is what ORT's zero-copy `IoBinding` needs to keep
+tensors in device memory across the fragment chain.
+
+**This engine does not implement `IoBinding`.** It loads those graphs and runs
+them normally, so the variant still saves the FP32↔FP16 conversions at each
+boundary, but intermediate tensors round-trip through host memory between
+fragments. On CPU that costs nothing; on a discrete GPU it is the PCIe traffic
+the variant exists to avoid.
+
+If you need real zero-copy binding today, use
+[`gliner2-inference`](crates/gliner2-inference), which implements it in its V2
+pipeline. Implementing it in `gliner2-core` is tracked work, not a claim.
+
+
+---
+
+## Quick start
+
+```sh
+ORT_DYLIB_PATH=/path/to/libonnxruntime.so \
+cargo run --release --example extract -p gliner2-privacy -- models/pii-onnx
+```
+
+```rust
+use gliner2_core::{SchemaTask, SpanConfig, SpanEngine};
+
+gliner2_core::init("my-app");
+let mut engine = SpanEngine::new(SpanConfig::new("models/my-onnx-export"))?;
+
+let tasks = vec![SchemaTask::Entities(vec![
+    "person".into(), "organization".into(), "location".into(),
+])];
+
+for e in engine.extract("Mario Rossi works at Apple.", &tasks)?.entities {
+    println!("{} -> {} ({:.1}%)  bytes [{}..{})",
+             e.text, e.label, e.score * 100.0, e.char_start, e.char_end);
+}
+```
+
+Byte offsets index the original text, so extracted spans keep their original
+casing — which matters when redacting a document rather than labelling it.
+
+Each crate README has worked examples for its own vocabulary.
+
+---
+
+## Requirements
+
+- Rust **edition 2024**, MSRV **1.88** for the new crates;
+  `gliner2-inference` is edition 2021.
+- ONNX Runtime shared library, resolved at run time from `ORT_DYLIB_PATH`. The
+  workspace pins `ort = 2.0.0-rc.13` with `default-features = false`, so nothing
+  is downloaded at build time and no EP libraries are copied next to your
+  binary. Verified against ONNX Runtime 1.25.1 at API level 17.
+- Enable `ort`'s `download-binaries` feature instead if you would rather it
+  fetch the runtime for you.
+
+---
+
+## Performance
+
+On an RTX 3090, one ~90-word paragraph with five entity labels: **20–27 ms**
+depending on model and precision, against **2.5–3.2 s** on a contended CPU.
+Load time is 7–14 s, dominated by reading the encoder from disk.
+
+Each model is reported separately in [`BENCHMARKS.md`](BENCHMARKS.md) — they are
+different checkpoints finding different entities, and comparing them to each
+other is not meaningful. The one conclusion that survives this host is the GPU
+gap; the precision ordering does not, since the two models disagree about it and
+the spread is smaller than the machine's own variance.
+
+That file also records a harness bug worth knowing about before you benchmark
+this yourself: timing back-to-back iterations in a tight loop on a contended
+machine inflated the numbers by up to 100×.
+
+## Verification
+
+Per-fragment parity proves the ONNX graphs are faithful. It is not enough:
+prompt construction, word routing, span decoding and suppression all live in
+Rust, outside the graphs. The test that matters is the end-to-end comparison
+against the PyTorch reference.
+
+Run on both devices and every precision, because a CUDA kernel producing
+different numbers from its CPU counterpart is exactly the kind of thing that
+goes unnoticed otherwise:
+
+| crate | device | `fp32` | `fp16` | `fp16_iobinding` |
+|---|---|---|---|---|
+| guardrails, 13 cases / 6 languages | CPU | 61/61 (0.0001) | 61/61 (0.0034) | 61/61 (0.0035) |
+| guardrails | RTX 3090 | 61/61 (0.0001) | 61/61 (0.0036) | 61/61 (0.0035) |
+| privacy, 13 cases / 7 languages | CPU | 58/58 (**0.0000**) | 58/58 (0.0023) | 58/58 (0.0021) |
+| privacy | RTX 3090 | 58/58 (**0.0000**) | 58/58 (0.0022) | 58/58 (0.0021) |
+
+Spans identical to the PyTorch reference in all twelve configurations; the figure
+in brackets is the largest score delta.
+
+Two things worth reading off that table. In `fp32` the privacy export matches
+PyTorch **exactly** — not to within a tolerance, to the fourth decimal the
+harness records — on both devices. And the CUDA path agrees with the CPU one to
+within FP16 rounding, 0.0034 against 0.0036 on the same case. Whatever else
+changes when you move to a GPU, the answers do not.
+
+```sh
+python onnx_conversion_scripts/compare_with_pytorch.py reference \
+    --model_path fastino/<checkpoint> --cases tests/cases_pii.json --out /tmp/pytorch.json
+
+ORT_DYLIB_PATH=… cargo run --release --example dump_json -p gliner2-privacy -- \
+    models/pii-onnx tests/cases_pii.json > /tmp/rust.json
+
+python onnx_conversion_scripts/compare_with_pytorch.py diff \
+    --reference /tmp/pytorch.json --candidate /tmp/rust.json
+```
+
+Every decoding bug this project has had was caught this way and by nothing else:
+the prompt layout drift, the cross-label suppression, the multi-label argmax
+fallback. Tolerances are **relative**, scaled to each tensor's magnitude —
+`span_rep` emits activations up to ~9e3 while `scorer` is a probability in
+`[0,1]`, so an absolute threshold is meaningless across that range.
 
 ---
 
 ## 📊 Benchmark & Performance
+
+> These figures were measured with **`gliner2-inference`**, whose V2 pipeline
+> uses `IoBinding`. `gliner2-core` does not implement binding yet, so its GPU
+> numbers will differ; the CPU ones are comparable.
 
 Tested on complex text extraction tasks spanning up to 62 classes. Total Inference Time per Sentence is the primary metric used for fair cross-framework comparison, allowing precise cross-device and cross-language comparisons.
 
@@ -107,200 +269,33 @@ Note: Benchmarks executed plugged in (Max Performance profile). Testing 51 targe
 
 ---
 
-## Installation & Setup
 
-### ONNX Runtime Compatibility (Important)
+---
 
-- For this project, use **`ort = 2.0.0-rc.9`**.
-- Newer release candidates tested during migration (`2.0.0-rc.11` / `2.0.0-rc.12`) can hang during session initialization or inference on our target environments.
-- Keep the dependency pinned until upstream stability is confirmed.
+## Exporting a model
 
-Example (`rust_component/Cargo.toml`):
-
-```toml
-ort = { version = "=2.0.0-rc.9", features = ["load-dynamic", "qnn", "cuda", "rocm", "coreml", "openvino", "directml", "tensorrt", "xnnpack", "half"] }
+```sh
+python onnx_conversion_scripts/export_span_v3.py \
+    --model_path fastino/gliner2-privacy-filter-PII-multi \
+    --out_dir models/pii-onnx
 ```
 
-### Installation Steps
+Needs `torch`, `transformers`, `gliner2>=2.0.0`, `onnx`, `onnxruntime`. It
+refuses `boundary` checkpoints rather than producing a silently wrong export.
 
-1. Clone this repository or add `gliner2-rs` to your `Cargo.toml`.
-2. Ensure you have the `onnxruntime` C/C++ libraries available on your system path.
-3. Export the GLiNER2 models to ONNX fragmented versions. 
-
-### Model Export & Smart Downloader
-
-Because of GLiNER2's dynamic architecture (which cycles dynamically over a sequence of JSON prompts rather than acting as a static FeedForward layer), the PyTorch model must be exported into a fragmented pipeline. We provide two architectures:
-
-#### 1. V2 Architecture (Zero-Copy IOBinding ⚡ - Recommended)
-Fuses data manipulation operations directly into the ONNX graph. Tensors stay inside the GPU/NPU VRAM, yielding a ~30% performance boost. Generates 8 files:
-*   `encoder...`
-*   `token_gather...`
-*   `span_rep...`
-*   `schema_gather...`
-*   `count_pred_argmax...`
-*   `count_lstm_fixed...`
-*   `scorer...`
-*   `classifier...`
-*   `tokenizer.json`
-
-*(Export script: `onnx_conversion_scripts/export_gliner2_onnx_fragments_v2.py`)*
-
-#### 2. V1 Architecture (Standard CPU Slicing - Legacy)
-Standard PyTorch export into 5 files. Slower on discrete GPUs due to PCIe transfers, but completely stable on older hardware.
-*   `encoder...`
-*   `span_rep...`
-*   `count_pred...`
-*   `count_lstm...`
-*   `classifier...`
-*   `tokenizer.json`
-
-*(Export script: `onnx_conversion_scripts/export_gliner2_onnx.py`)*
-
-#### 🌍 Smart HF Downloader
-When downloading a model via `Gliner2Engine::from_pretrained("jugaadsrl/gliner2-multi-v1-onnx", Some("fp16_v2"), ...)`, the Rust engine uses an **OS-Aware Smart Downloader** to fetch only the optimal variant:
-- **Windows/Linux**: Downloads the `_fp16_iobinding.onnx` variants to maximize CUDA/ROCm/TensorRT performance.
-- **macOS/iOS**: Automatically falls back to standard `_fp16.onnx` to ensure compatibility with Apple CoreML.
-
-This mechanism cuts bandwidth and disk usage by ~50% while delivering the best possible performance out of the box!
-
-## 💻 Usage
-
-```rust
-use gliner2_inference::{Gliner2Engine, Gliner2Config, SchemaTask, ModelType};
-
-fn main() -> anyhow::Result<()> {
-    // Initialize ONNX Runtime environment (automatically binds to available NPUs/GPUs)
-    ort::init().with_name("GLiNER2_Engine").commit()?;
-
-    // Configure engine
-    let config = Gliner2Config {
-        models_dir: "./models/fastino_gliner2_multi_v1_fp16".to_string(),
-        max_width: 8, // Maximum tokens per span
-        model_type: ModelType::HuggingFace, // Automatically routes tensors correctly
-    };
-    
-    // Load and build session
-    let engine = Gliner2Engine::new(config)?;
-
-    let text = "Mario Rossi works at Apple in Cupertino.";
-    
-    // Create schema tasks dynamically
-    let tasks = vec![
-        SchemaTask::Entities(vec![
-            "person".to_string(), 
-            "organization".to_string(), 
-            "location".to_string()
-        ]),
-        SchemaTask::Relations("works_at".to_string(), vec![
-            "head".to_string(), 
-            "tail".to_string()
-        ]),
-        SchemaTask::Classifications("sentiment".to_string(), vec![
-            "positive".to_string(), 
-            "negative".to_string()
-        ])
-    ];
-
-    // Extract features
-    let (entities, relations, classifications) = engine.extract(text, &tasks)?;
-
-    for entity in entities {
-        println!("Found: {} (Label: {} - Score: {:.2}%)", entity.text, entity.label, entity.score * 100.0);
-    }
-    
-    Ok(())
-}
-```
-
-## Model Types
-
-### Privacy / PII Model Support
-- **Target model**: `jugaadsrl/gliner2-privacy-filter-PII-multi-onnx`
-- For this repository, the model is served as ONNX V2 fragments under `fp16_v2` / `fp32_v2`.
-- To load from HuggingFace with this crate, use:
-
-```rust
-let engine = Gliner2Engine::from_pretrained(
-    "jugaadsrl/gliner2-privacy-filter-PII-multi-onnx",
-    Some("fp16_v2"),
-    ModelType::HuggingFace,
-)?;
-```
-
-- A dedicated gate example is available in `rust_component/examples/test_pii_anonymization_gate.rs`.
-  It emits `needs_anonymization` and a `redacted_text` generated from detected PII spans.
-
-### HuggingFace Base Model
-- **Type**: `ModelType::HuggingFace`
-- **Source**: `fastino/gliner2-multi-v1` from HuggingFace
-- **Usage**: Free for testing and development
-- **Performance**: Good baseline, trained on general data
-
-### Premium Fine-Tuned Model (PyTorch Local Export)
-- **Type**: `ModelType::PyTorch`
-- **Access**: Proprietary fine-tuned weights
-- **Performance**: Superior accuracy on domain-specific entities
-
-## ⚖️ License
-
-Licensed under the [Apache License, Version 2.0](LICENSE).  
-Written by Dario Finardi. Published by Jugaad s.r.l., which uses it in Edito and Omissis — https://edito-pdf.com
-
-See [`NOTICE`](NOTICE) for attribution. In short: the engine is original
-Rust code, but the **model weights are not distributed here**. It loads
-ONNX exports of GLiNER2 models published by
-[Knowledgator](https://huggingface.co/knowledgator), which stay under
-their publisher's licence — check it before shipping them inside an
-application. Converting a model to ONNX does not change its licence.
-# Release Notes
-
-## [v0.5.0] - 2026-04-23
-### ⚙️ Dynamic Inference Parameters (`InferenceParams`)
-Introduced the `InferenceParams` struct to the `extract()` function, allowing per-request control over inference behavior without rebuilding the engine:
-- **`threshold`**: Controls the confidence score threshold (default `0.5`).
-- **`flat_ner`**: When `false` (default), overlapping entities with different labels are allowed (e.g. "Apple Inc." as `organization` and "Apple" as `company`). When `true`, strict greedy NMS removes any overlap, regardless of label.
-
-### 📐 Note on `max_width`
-You may notice that `max_width` (the maximum length of an entity in tokens) is not part of `InferenceParams` but remains in `Gliner2Config` at engine initialization. 
-**Why isn't it dynamic?** In the high-performance V2 IOBinding architecture, the span representation layer is fused directly into the ONNX computational graph. During export, the dimension for `max_width` is hard-baked into the model tensors (e.g., `[batch, num_words, 8, hidden_size]`). Changing `max_width` at runtime in V2 would cause an immediate ONNX shape mismatch error. Thus, it remains a structural configuration parameter.
+The span architecture cannot be traced into a single ONNX graph — it loops over
+a variable number of schema tasks and a predicted, variable number of entity
+occurrences — so it is exported as eight fragments. See
+[`crates/gliner2-core/README.md`](crates/gliner2-core/README.md) for the chain.
 
 ---
 
-## [v0.4.2] - 2026-04-22
-### 🚀 Smart Downloads & HF Ecosystem
-- **OS-Aware Model Downloader**: `from_pretrained` logic has been heavily optimized. It now parses `std::env::consts::OS` to selectively download only the `_fp16_iobinding` variants for Linux/Windows (CUDA/ROCm) and standard `_fp16` for macOS (CoreML). This drops the V2 download size from 1.2GB to ~600MB.
-- **Manual IOBinding Override**: Introduced `GLINER2_NO_IOBINDING=1` environment variable to force fallback to standard FP16 execution even on supported hardware.
-- **Hugging Face Model Card**: Generated the optimal `README_HF.md` to properly showcase the V2 capabilities on the Hub.
-- **Automated V2 Uploads**: Included `upload_v2_to_hf.py` inside `onnx_conversion_scripts` to streamline uploading the double V2 variants (`fp16_v2` and `fp32_v2`) to the Hugging Face ecosystem.
+## License and attribution
 
----
+Licensed under the [Apache License, Version 2.0](LICENSE).
 
-## [v0.4.1] - 2026-04-22
-### ⚡ V2 Zero-Copy IOBinding Architecture
-- **Performance**: Up to 30% reduction in inference latency (currently tested and verified on NVIDIA RTX GPUs and AMD Ryzen CPUs).
-- **ONNX Graph Fusion**: Ported previously CPU-bound operations (`Gather` for Token/Schema representations, `ArgMax` for prediction counts, and `MatMul` replacing Einsum for the Scorer) directly into the ONNX session.
-- **IOBinding Bypass**: Data now remains fully encapsulated within the VRAM buffer avoiding expensive PCIe bus transactions.
-- **Facade Auto-detect**: Built an intelligent `Gliner2Engine` wrapper to automatically detect whether to use V1 CPU-slicing logic or V2 IOBinding without breaking changes to the consumer code.
+The models are the work of the [Fastino](https://fastino.ai) team and are not
+distributed from this repository. See [`NOTICE`](NOTICE) for the full
+attribution, and [`RELEASE_NOTES.md`](RELEASE_NOTES.md) for the history.
 
-### 🎉 Additional Improvements
-- **Advanced Multitask Extraction**: Expanded `test_hf_download.rs` to demonstrate concurrent extraction of Entities, Relations, and Classifications (Sentiment/Topic).
-- **Relations Schema Fix**: Corrected the relations schema mapping to properly use `head` and `tail` node identifiers.
-- **Internationalization**: Translated remaining Italian logs and comments to English for broader accessibility.
-
----
-
-## [v0.3.0] - 2026-04-21
-### 🎉 New Features
-- **HuggingFace Hub Auto-Download**: Added `Gliner2Engine::from_pretrained()` to dynamically download ONNX models (FP16/FP32) directly from HuggingFace via the official `hf-hub` crate.
-- **Download Stats Tracking**: Native API calls inject the required `User-Agent` HTTP headers (`<library_name>/<version>; rust/unknown; <os_name>/unknown`) directly respecting HuggingFace's model download statistics policies.
-- **Dynamic Execution Lengths (CountLSTM)**: Replaced `CompileSafeGRU` loop unrolling in PyTorch with a fully dynamic native `nn.GRU` during ONNX export. The `Gather` out-of-bounds error on variable-length texts is now permanently resolved!
-
-### 🧹 Fixes & Cleanups
-- Removed obsolete dependencies and hardcoded references to the old `lmo3` checkpoints.
-- Removed arbitrary length caps and fixed Python export logic for sequence counts, avoiding invalid loop unrolling.
-- Optimized and refactored standard examples (`test_simple.rs`, `run_inference.rs`) and added `test_hf_download.rs`.
-
----
-
-## [v0.2.3]
-- Initial functional release supporting basic Pytorch-converted fragments with local paths.
+Copyright 2026 Dario Finardi. Published by Jugaad s.r.l.

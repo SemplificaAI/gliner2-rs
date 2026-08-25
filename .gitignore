@@ -15,3 +15,6 @@ reference_implementations/
 models/
 target/
 onnx_conversion_scripts/archive_debug_scripts/
+
+# shared model directory, populated by the exporters or from the Hub
+/models/

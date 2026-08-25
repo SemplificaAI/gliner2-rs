@@ -1,0 +1,38 @@
+[workspace]
+resolver = "3"
+members = [
+    # foundation. Shared with gliner25-rs, which lives in its own repository:
+    # the boundary architecture has different span conventions and no reason to
+    # ride this repository's release cadence. Once gliner-core is published,
+    # gliner25-rs depends on it from crates.io rather than copying it.
+    "crates/gliner-core",
+    # span architecture (GLiNER2) and its model-specific extensions
+    "crates/gliner2-core",
+    "crates/gliner2-guardrails",
+    "crates/gliner2-privacy",
+    # the original engine: edition 2021, V1 pipeline, HuggingFace downloader
+    "crates/gliner2-inference",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.88"
+authors = ["Dario Finardi <df@dariofinardi.it>"]
+license = "Apache-2.0"
+repository = "https://github.com/dariofinardi/gliner2-rs"
+homepage = "https://edito-pdf.com"
+
+[workspace.dependencies]
+# One ort version for the whole workspace: mixing release candidates across
+# crates would link two incompatible ONNX Runtime bindings into one binary.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = [
+    "std", "ndarray", "load-dynamic",
+    "cuda", "rocm", "coreml", "openvino", "directml", "tensorrt", "xnnpack", "qnn", "half",
+] }
+ndarray = "0.17"
+tokenizers = "0.23"
+anyhow = "1.0"
+half = "2.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+regex = "1.11"
