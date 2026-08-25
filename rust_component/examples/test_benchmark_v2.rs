@@ -2,18 +2,18 @@ use gliner2_inference::*;
 use std::env;
 
 fn main() -> anyhow::Result<()> {
-    ort::init().with_name("GLiNER2_Bench_V2").commit()?;
+    ort::init().with_name("GLiNER2_Bench_V2").commit();
 
     let force_cpu = env::var("FORCE_CPU").is_ok();
     println!("GLiNER2 RUST NATIVE - Benchmark V2 IOBinding (Force CPU: {})", force_cpu);
 
     let engine = Gliner2Engine::from_pretrained(
-        "SemplificaAI/gliner2-multi-v1-onnx",
+        "jugaadsrl/gliner2-multi-v1-onnx",
         Some("fp16_v2"),
         ModelType::HuggingFace,
     )?;
 
-    let text = "Il signor Mario Rossi vive a Roma e lavora per Semplifica s.r.l. dal 2020. \
+    let text = "Il signor Mario Rossi vive a Roma e lavora per Jugaad s.r.l. dal 2020. \
     L'azienda, fondata da Giuseppe Verdi, ha recentemente aperto una nuova sede a Milano, vicino al Duomo. \
     Nel 2023, il fatturato è cresciuto del 45%, spinto dalle nuove tecnologie di intelligenza artificiale. \
     La dottoressa Francesca Bianchi, CEO della divisione europea, ha tenuto una conferenza a Parigi \

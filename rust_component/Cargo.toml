@@ -1,11 +1,12 @@
 [package]
 name = "gliner2_inference"
-version = "0.5.1"
+version = "0.5.2"
 edition = "2021"
-authors = ["Dario Finardi <git@semplifica.ai>", "Semplifica s.r.l."]
+authors = ["Dario Finardi <df@dariofinardi.it>"]
 description = "Native Rust inference engine for GLiNER2 models using ONNX Runtime."
 license = "Apache-2.0"
-repository = "https://github.com/SemplificaAI/gliner2-rs"
+repository = "https://github.com/dariofinardi/gliner2-rs"
+homepage = "https://edito-pdf.com"
 
 [dependencies]
 # Manipolazione Tensor (L'equivalente NumPy per Rust)

@@ -1,9 +1,9 @@
 # gliner2-rs
 
-[![GitHub](https://img.shields.io/badge/GitHub-SemplificaAI/gliner2--rs-blue?style=flat-square&logo=github)](https://github.com/SemplificaAI/gliner2-rs)
+[![GitHub](https://img.shields.io/badge/GitHub-dariofinardi/gliner2--rs-blue?style=flat-square&logo=github)](https://github.com/dariofinardi/gliner2-rs)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Version](https://img.shields.io/badge/Version-0.5.0-brightgreen.svg)](https://github.com/SemplificaAI/gliner2-rs)
-[![Status](https://img.shields.io/badge/Status-Beta-blue.svg)](https://github.com/SemplificaAI/gliner2-rs)
+[![Version](https://img.shields.io/badge/Version-0.5.2-brightgreen.svg)](https://github.com/dariofinardi/gliner2-rs)
+[![Status](https://img.shields.io/badge/Status-Beta-blue.svg)](https://github.com/dariofinardi/gliner2-rs)
 
 **Native Rust Inference Engine for GLiNER2**
 
@@ -11,10 +11,34 @@
 
 This crate completely replicates the advanced sub-word tokenization and prompt-generation logic of GLiNER2's `processor.py` internally, using the official `tokenizers` crate for zero-overhead BPE tokenization.
 
-*Copyright 2026 Dario Finardi, [Semplifica s.r.l.](https://semplifica.ai)*  
-*Licensed under Apache License 2.0*
+Written by **Dario Finardi**. Published by **Jugaad s.r.l.**, which uses it in
+production inside **Edito** and **Omissis** — [edito-pdf.com](https://edito-pdf.com).
+
+*Copyright 2026 Dario Finardi. Published by Jugaad s.r.l. — Apache License 2.0*
 
 ## 🚀 Features
+
+### 🐛 What's Fixed in 0.5.2 (Prompt Layout)
+
+`SchemaTransformer` diverged from `gliner2/processor.py` on three points, each
+of which misaligned the gathered embeddings against the format the model was
+trained on: the prompt was wrapped in `[CLS]`/`[SEP]`, which gliner2 never
+emits; field indices pointed at the label name instead of the `[E]`/`[R]`/`[L]`
+marker before it; and text words were not lower-cased, though `_tokenize_text`
+calls `word_splitter(text, lower=True)`.
+
+Measured against the PyTorch reference over 13 cases in 6 languages:
+
+| | spans matching PyTorch | max score delta |
+|---|---|---|
+| before | 60/61 | 0.2215 |
+| after | **61/61** | **0.0031** |
+
+Before the fix the engine missed a `location` outright, invented a `last_name`,
+and — the one that matters for redaction — scored the Italian *codice fiscale*
+`VRDGPP58D12F205X` at 0.5016 against a 0.5 threshold, a coin flip on leaking a
+national identifier. Ground truth is pinned by
+`processor::tests::ground_truth_prompt_layout`.
 
 ### ⚡ What's New in 0.5.0 (Dynamic Inference Parameters)
 - **Zero-Copy PCIe bypass**: Replaces CPU manipulations with `Gather`, `ArgMax`, and `MatMul` operations fused directly into the ONNX graphs. Data now stays inside GPU/NPU VRAM, speeding up performance by ~30% (currently tested on NVIDIA RTX GPUs and AMD Ryzen CPUs).
@@ -73,7 +97,7 @@ Note: Benchmarks executed plugged in (Max Performance profile). Testing 51 targe
 | **Rust (V2)* ** | CPU ARM64 (Oryon) | `fp16_v2` | **~1.96 s** ⚡ | **0.66 s** | ~13.10 ms |
 | **Rust (V1)** | CPU ARM64 (Oryon) | `fp16` | **~1.82 s** | **0.68 s** | ~13.43 ms |
 | **Rust (V1)** | NPU (QNN) | `fp16` | **~2.12 s** | **0.71 s** | ~14.11 ms |
-| **Python 3.12** | CPU ARM64 (PyTorch) | `SemplificaAI/gliner2-multi-v1` | **~12.74 s** 🐢 | **0.31 s** | ~15.03 ms |
+| **Python 3.12** | CPU ARM64 (PyTorch) | `jugaadsrl/gliner2-multi-v1` | **~12.74 s** 🐢 | **0.31 s** | ~15.03 ms |
 | **Python 3.12** | CPU ARM64 (PyTorch) | `fastino/gliner2-multi-v1` | **~8.76 s** 🐢 | **0.36 s** | ~24.51 ms |
 
 **Takeaways:**
@@ -133,7 +157,7 @@ Standard PyTorch export into 5 files. Slower on discrete GPUs due to PCIe transf
 *(Export script: `onnx_conversion_scripts/export_gliner2_onnx.py`)*
 
 #### 🌍 Smart HF Downloader
-When downloading a model via `Gliner2Engine::from_pretrained("SemplificaAI/gliner2-multi-v1-onnx", Some("fp16_v2"), ...)`, the Rust engine uses an **OS-Aware Smart Downloader** to fetch only the optimal variant:
+When downloading a model via `Gliner2Engine::from_pretrained("jugaadsrl/gliner2-multi-v1-onnx", Some("fp16_v2"), ...)`, the Rust engine uses an **OS-Aware Smart Downloader** to fetch only the optimal variant:
 - **Windows/Linux**: Downloads the `_fp16_iobinding.onnx` variants to maximize CUDA/ROCm/TensorRT performance.
 - **macOS/iOS**: Automatically falls back to standard `_fp16.onnx` to ensure compatibility with Apple CoreML.
 
@@ -191,13 +215,13 @@ fn main() -> anyhow::Result<()> {
 ## Model Types
 
 ### Privacy / PII Model Support
-- **Target model**: `SemplificaAI/gliner2-privacy-filter-PII-multi`
+- **Target model**: `jugaadsrl/gliner2-privacy-filter-PII-multi`
 - For this repository, the model is served as ONNX V2 fragments under `fp16_v2` / `fp32_v2`.
 - To load from HuggingFace with this crate, use:
 
 ```rust
 let engine = Gliner2Engine::from_pretrained(
-    "SemplificaAI/gliner2-privacy-filter-PII-multi",
+    "jugaadsrl/gliner2-privacy-filter-PII-multi",
     Some("fp16_v2"),
     ModelType::HuggingFace,
 )?;
@@ -220,7 +244,7 @@ let engine = Gliner2Engine::from_pretrained(
 ## ⚖️ License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).  
-This project was developed by Dario Finardi at Semplifica s.r.l.
+Written by Dario Finardi. Published by Jugaad s.r.l., which uses it in Edito and Omissis — https://edito-pdf.com
 
 See [`NOTICE`](NOTICE) for attribution. In short: the engine is original
 Rust code, but the **model weights are not distributed here**. It loads

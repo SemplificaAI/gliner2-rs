@@ -11,7 +11,7 @@ model = GLiNER2.from_pretrained("fastino/gliner2-multi-v1")
 model.to(args.device)
 model.eval()
 
-text = "Il signor Mario Rossi vive a Roma e lavora per Semplifica s.r.l. dal 2020. L'azienda, fondata da Giuseppe Verdi, ha recentemente aperto una nuova sede a Milano, vicino al Duomo. Nel 2023, il fatturato è cresciuto del 45%, spinto dalle nuove tecnologie di intelligenza artificiale. La dottoressa Francesca Bianchi, CEO della divisione europea, ha tenuto una conferenza a Parigi il 15 Maggio 2024, annunciando partnership strategiche con Microsoft e Google."
+text = "Il signor Mario Rossi vive a Roma e lavora per Jugaad s.r.l. dal 2020. L'azienda, fondata da Giuseppe Verdi, ha recentemente aperto una nuova sede a Milano, vicino al Duomo. Nel 2023, il fatturato è cresciuto del 45%, spinto dalle nuove tecnologie di intelligenza artificiale. La dottoressa Francesca Bianchi, CEO della divisione europea, ha tenuto una conferenza a Parigi il 15 Maggio 2024, annunciando partnership strategiche con Microsoft e Google."
 labels = ['person', 'organization', 'location', 'date', 'time', 'event', 'facility', 'product', 'language', 'law', 'percent', 'quantity', 'money', 'ordinal', 'cardinal', 'nationality', 'religion', 'title', 'profession', 'country', 'city', 'state', 'brand', 'vehicle', 'weapon', 'disease', 'drug', 'chemical', 'material', 'color', 'shape', 'animal', 'plant', 'food', 'beverage', 'sport', 'game', 'award', 'art', 'book', 'movie', 'song', 'music', 'software', 'website', 'company', 'university', 'school', 'hospital', 'airport', 'station']
 
 # Warmup
