@@ -153,6 +153,17 @@ Each crate README has worked examples for its own vocabulary.
 
 ---
 
+## Performance
+
+Measured on an RTX 3090 and a Ryzen 9 5900XT, with the caveats that matter — the
+host was under load 18 throughout, so the CPU figures are an upper bound and
+some GPU rows are noise. See [`BENCHMARKS.md`](BENCHMARKS.md) for the full table
+and what can and cannot be concluded from it.
+
+The short version: use `fp32` on GPU. `_fp16_iobinding` is the slowest variant
+everywhere until `IoBinding` is implemented, because FP16 graph I/O moves the
+conversion into a scalar host-side loop at every fragment boundary.
+
 ## Verification
 
 Per-fragment parity proves the ONNX graphs are faithful. It is not enough:

@@ -20,6 +20,7 @@
 
 use anyhow::{Context, Result, anyhow};
 use half::f16;
+use ort::ep::{self, ExecutionProviderDispatch};
 use ort::session::Session;
 use ort::session::builder::SessionBuilder;
 use ort::value::{DynValue, Tensor};
@@ -140,6 +141,46 @@ pub fn resolve_tokenizer(dir: &Path, precision: Precision) -> Option<PathBuf> {
     None
 }
 
+/// Which execution providers to register, from `GLINER2_DEVICE`.
+///
+/// | value | meaning |
+/// |---|---|
+/// | unset or `auto` | CUDA first, then CPU — ONNX Runtime falls back on its own |
+/// | `cpu` | CPU only, no provider registered |
+/// | `cuda` / `cuda:N` | NVIDIA CUDA on device 0 or N, CPU behind it |
+/// | `tensorrt` | TensorRT, with CUDA and CPU behind it |
+/// | `rocm`, `coreml`, `directml`, `openvino`, `xnnpack` | the matching provider, CPU behind it |
+///
+/// Registration is a request, not a guarantee: if the provider's shared library
+/// is missing — the plain `onnxruntime` wheel ships none of them — ONNX Runtime
+/// logs and runs on CPU. Nothing here reports which one actually served the
+/// session, so treat a device flag as intent and confirm with a benchmark.
+pub fn execution_providers() -> Vec<ExecutionProviderDispatch> {
+    let requested = std::env::var("GLINER2_DEVICE").unwrap_or_else(|_| "auto".into());
+    let (name, device_id) = match requested.split_once(':') {
+        Some((n, id)) => (n.to_string(), id.parse::<i32>().unwrap_or(0)),
+        None => (requested.clone(), 0),
+    };
+
+    match name.trim().to_lowercase().as_str() {
+        "cpu" => Vec::new(),
+        "cuda" | "auto" => vec![ep::CUDA::default().with_device_id(device_id).build()],
+        "tensorrt" => vec![
+            ep::TensorRT::default().build(),
+            ep::CUDA::default().with_device_id(device_id).build(),
+        ],
+        "rocm" => vec![ep::ROCm::default().build()],
+        "coreml" => vec![ep::CoreML::default().build()],
+        "directml" => vec![ep::DirectML::default().build()],
+        "openvino" => vec![ep::OpenVINO::default().build()],
+        "xnnpack" => vec![ep::XNNPACK::default().build()],
+        other => {
+            eprintln!("GLINER2_DEVICE={other} not recognised, running on CPU");
+            Vec::new()
+        }
+    }
+}
+
 /// Builds a session with the common options applied.
 ///
 /// `ort::init()` is the caller's responsibility and is not repeated here:
@@ -152,6 +193,14 @@ pub fn build_session(path: &Path, intra_threads: usize) -> Result<Session> {
     let mut builder: SessionBuilder = Session::builder()?
         .with_intra_threads(intra_threads)
         .map_err(ort::Error::<()>::from)?;
+
+    let providers = execution_providers();
+    if !providers.is_empty() {
+        builder = builder
+            .with_execution_providers(providers)
+            .map_err(ort::Error::<()>::from)?;
+    }
+
     builder
         .commit_from_file(path)
         .with_context(|| format!("while loading {}", path.display()))
