@@ -181,6 +181,44 @@ pub fn execution_providers() -> Vec<ExecutionProviderDispatch> {
     }
 }
 
+/// Parses `GLINER2_DEVICE` once, into `(provider, device id)`.
+fn requested_device() -> (String, i32) {
+    let requested = std::env::var("GLINER2_DEVICE").unwrap_or_else(|_| "auto".into());
+    match requested.split_once(':') {
+        Some((n, id)) => (n.trim().to_lowercase(), id.parse::<i32>().unwrap_or(0)),
+        None => (requested.trim().to_lowercase(), 0),
+    }
+}
+
+/// The device ordinal `GLINER2_DEVICE=cuda:1` asked for.
+pub fn device_id() -> i32 {
+    requested_device().1
+}
+
+/// Whether the configured provider owns memory that `IoBinding` can bind to.
+///
+/// This decides what `ExecutionMode::Auto` resolves to. CPU and the graph
+/// optimisers that run on it have nothing to bind: their "device memory" is
+/// host memory, so binding would add bookkeeping and save no copy.
+pub fn provider_has_device_memory() -> bool {
+    matches!(
+        requested_device().0.as_str(),
+        "cuda" | "auto" | "tensorrt" | "rocm" | "directml"
+    )
+}
+
+/// The ORT allocation device matching the configured provider.
+pub fn allocation_device() -> ort::memory::AllocationDevice {
+    use ort::memory::AllocationDevice;
+    match requested_device().0.as_str() {
+        "rocm" => AllocationDevice::HIP,
+        "directml" => AllocationDevice::DIRECTML,
+        // CUDA also backs the TensorRT provider, which falls back to it.
+        "cuda" | "auto" | "tensorrt" => AllocationDevice::CUDA,
+        _ => AllocationDevice::CPU,
+    }
+}
+
 /// Builds a session with the common options applied.
 ///
 /// `ort::init()` is the caller's responsibility and is not repeated here:

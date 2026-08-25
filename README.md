@@ -30,7 +30,7 @@ silent off-by-one.
 
 ```toml
 [dependencies]
-gliner2-rs = "0.7"
+gliner2-rs = "0.8"
 ```
 
 `gliner2-rs` loads a model from a local directory, and fetches it from the Hub
@@ -111,6 +111,66 @@ crate does not carry it.
 
 ---
 
+## Execution modes
+
+The engine is a chain of eight ONNX fragments. Between any two of them the
+intermediate tensor either goes back to host memory and is rebuilt for the next
+fragment, or stays where the provider produced it and is bound straight into the
+next fragment's input.
+
+Same fragments, same order, same arithmetic — only the transport differs. So
+there is one pipeline and a switch, not two engines:
+
+```rust
+use gliner2_rs::{SpanConfig, SpanEngine, chain::ExecutionMode};
+
+let cfg = SpanConfig::new("models/pii-onnx")
+    .with_execution(ExecutionMode::IoBinding);
+```
+
+| mode | what it does |
+|---|---|
+| `Auto` *(default)* | bound on a device provider, standard on CPU |
+| `IoBinding` | intermediates stay in device memory across the chain |
+| `Standard` | every output returns to host memory first — works everywhere |
+
+`GLINER2_EXECUTION=standard\|binding\|auto` sets it from the environment, and
+`GLINER2_NO_IOBINDING=1` still forces the standard path — it is what the older
+engine used and it means the same thing here.
+
+`SpanEngine::execution()` reports the mode actually in force, after `Auto` has
+resolved and after any fallback.
+
+### What it is worth
+
+RTX 3090, GLiNER2 PII, 25 runs, median. A shared development machine, so read
+these as ratios rather than absolutes:
+
+| precision | `Standard` | `IoBinding` | |
+|---|---|---|---|
+| `fp32` | 25.9 ms | **10.8 ms** | 2.4× |
+| `fp16_iobinding` | 28.1 ms | **11.3 ms** | 2.5× |
+
+On CPU the two are within noise of each other, and binding is marginally slower:
+there "device memory" is host memory, so the copy binding avoids does not exist,
+and only its bookkeeping remains. That is why `Auto` does not use it there.
+
+### Falling back
+
+A device allocation failure during binding is not fatal. The engine drops to the
+standard path for the rest of its life and carries on — one slow run beats a
+failed one, and retrying the binding on every call would just pay the same failure
+again. `execution()` will report `Standard` afterwards.
+
+### Same numbers either way
+
+Verified on GPU with both modes over the same input: identical entities,
+identical scores. The standard path is also byte-identical to the engine before
+binding existed — confirmed against the same ONNX Runtime build, since a
+different runtime version moves the last decimal on its own.
+
+---
+
 ## Model compatibility
 
 Weights are **not** ours. GLiNER2 is developed by [Fastino](https://fastino.ai)
@@ -163,20 +223,13 @@ Selected automatically per platform — `_fp16_iobinding` on Linux and Windows,
 
 ### A note on `_fp16_iobinding`
 
-The suffix names what the variant was *exported for*, not what this engine does
-with it. `keep_io_types=False` leaves the graph inputs and outputs in FP16 as
-well as the weights, which is what ORT's zero-copy `IoBinding` needs to keep
-tensors in device memory across the fragment chain.
+The suffix names what the variant was exported for: `keep_io_types=False` leaves
+the graph inputs and outputs in FP16 as well as the weights, which is what
+zero-copy binding needs to keep tensors in device memory across the chain.
 
-**This engine does not implement `IoBinding`.** It loads those graphs and runs
-them normally, so the variant still saves the FP32↔FP16 conversions at each
-boundary, but intermediate tensors round-trip through host memory between
-fragments. On CPU that costs nothing; on a discrete GPU it is the PCIe traffic
-the variant exists to avoid.
-
-If you need real zero-copy binding today, use
-[`gliner2-inference`](crates/gliner2-inference), which implements it in its V2
-pipeline. Implementing it in `gliner2-rs` is tracked work, not a claim.
+Binding is implemented — see [Execution modes](#execution-modes) — and the
+variant is worth using with it. Without binding it still saves the FP32↔FP16
+conversions at each boundary, so it is not wasted either way.
 
 
 ---

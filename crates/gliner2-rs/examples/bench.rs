@@ -2,7 +2,7 @@
 //!
 //! ```sh
 //! ORT_DYLIB_PATH=… GLINER2_DEVICE=cuda GLINER2_PRECISION=fp16_iobinding \
-//! cargo run --release --example bench -p gliner2-core -- <models_dir> [runs]
+//! cargo run --release --example bench -p gliner2-rs -- <models_dir> [runs]
 //! ```
 //!
 //! Reports the median rather than the mean: a single scheduling hiccup skews a
@@ -26,6 +26,7 @@ fn main() -> anyhow::Result<()> {
 
     let t0 = Instant::now();
     let mut engine = SpanEngine::new(SpanConfig::new(&dir))?;
+    println!("execution mode: {:?}", engine.execution());
     let load = t0.elapsed();
 
     let tasks = vec![SchemaTask::Entities(vec![

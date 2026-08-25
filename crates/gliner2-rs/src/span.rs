@@ -34,6 +34,7 @@ use ort::session::Session;
 use crate::error::GlinerError;
 use crate::overlap::{OverlapPolicy, Spanned, resolve_overlaps};
 use crate::processor::{ProcessedRecord, SchemaTask, SchemaTransformer, TaskType};
+use crate::chain::{Chain, ExecutionMode, Feed, Sink};
 use crate::runtime::{
     IoDType, Precision, build_session, float_tensor, i64_tensor, resolve_fragment,
     resolve_tokenizer, sigmoid, softmax, take_float, take_i64,
@@ -155,6 +156,8 @@ pub struct SpanConfig {
     pub models_dir: PathBuf,
     pub precision: Precision,
     pub intra_threads: usize,
+    /// How intermediate tensors travel between fragments.
+    pub execution: ExecutionMode,
     /// Where to fetch the export from if `models_dir` does not hold one.
     #[cfg(feature = "hub")]
     pub hub: Option<crate::hub::Model>,
@@ -168,6 +171,7 @@ impl SpanConfig {
             models_dir,
             precision,
             intra_threads: 4,
+            execution: ExecutionMode::from_env(),
             #[cfg(feature = "hub")]
             hub: None,
         }
@@ -202,6 +206,15 @@ impl SpanConfig {
         self.intra_threads = n;
         self
     }
+
+    /// Chooses the transport between fragments.
+    ///
+    /// Overrides `GLINER2_EXECUTION`. The default is
+    /// [`ExecutionMode::Auto`]: bound on a device provider, standard on CPU.
+    pub fn with_execution(mut self, mode: ExecutionMode) -> Self {
+        self.execution = mode;
+        self
+    }
 }
 
 pub struct SpanEngine {
@@ -215,6 +228,7 @@ pub struct SpanEngine {
     classifier: Session,
 
     transformer: SchemaTransformer,
+    chain: Chain,
     dtype: IoDType,
     max_width: usize,
     max_count: usize,
@@ -292,6 +306,7 @@ impl SpanEngine {
         let classifier_layout = detect_classifier_layout(&classifier)?;
 
         Ok(Self {
+            chain: Chain::new(config.execution, precision.io_dtype())?,
             encoder,
             token_gather: load("token_gather")?,
             span_rep: load("span_rep")?,
@@ -319,6 +334,12 @@ impl SpanEngine {
         self.hidden
     }
     /// Which classifier signature the loaded export carries.
+    /// The transport actually in force, after `Auto` was resolved — and after
+    /// any fallback a device OOM forced.
+    pub fn execution(&self) -> ExecutionMode {
+        self.chain.mode()
+    }
+
     pub fn classifier_layout(&self) -> ClassifierLayout {
         self.classifier_layout
     }
@@ -339,38 +360,61 @@ impl SpanEngine {
             return Ok(SpanOutput::default());
         }
 
-        // ── 1. encoder ────────────────────────────────────────────────────
+        // ── the chain, written once ───────────────────────────────────────
+        //
+        // Each step hands `self.chain` its inputs in the order the graph
+        // declares them and says where each output should land. The chain
+        // decides whether that means a host round trip or a device binding, so
+        // the two transports cannot drift apart the way they did when they
+        // lived in separate crates.
         let seq = record.input_ids.len() as i64;
-        let hidden = {
-            let ids = i64_tensor(vec![1, seq], record.input_ids.clone())?;
-            let mask = i64_tensor(vec![1, seq], record.attention_mask.clone())?;
-            let out = self.encoder.run(ort::inputs![ids, mask])?;
-            take_float(&out["last_hidden_state"], self.dtype)?.1
-        };
+        let hidden_shape = vec![1, seq, self.hidden as i64];
 
-        // ── 2. token_gather -> text_embs ──────────────────────────────────
-        let text_embs = {
-            let h = float_tensor(self.dtype, vec![1, seq, self.hidden as i64], hidden.clone())?;
-            let idx = i64_tensor(vec![num_words as i64], record.word_first_positions())?;
-            let out = self.token_gather.run(ort::inputs![h, idx])?;
-            take_float(&out["text_embs"], self.dtype)?.1
-        };
+        // 1. encoder — consumed by token_gather and, per group, schema_gather.
+        let hidden = self
+            .chain
+            .run(
+                &mut self.encoder,
+                &[
+                    Feed::Owned(i64_tensor(vec![1, seq], record.input_ids.clone())?),
+                    Feed::Owned(i64_tensor(vec![1, seq], record.attention_mask.clone())?),
+                ],
+                &[Sink::Device],
+            )?
+            .remove(0);
 
-        // ── 3. span_rep -> span_embeddings ────────────────────────────────
-        let span_embeddings = {
-            let spans = build_span_idx(num_words, self.max_width);
-            let n_spans = (num_words * self.max_width) as i64;
-            let te = float_tensor(
-                self.dtype,
-                vec![1, num_words as i64, self.hidden as i64],
-                text_embs,
-            )?;
-            let si = i64_tensor(vec![1, n_spans, 2], spans)?;
-            let out = self.span_rep.run(ort::inputs![te, si])?;
-            take_float(&out["span_embeddings"], self.dtype)?.1
-        };
+        // 2. token_gather -> text_embs
+        let text_embs = self
+            .chain
+            .run(
+                &mut self.token_gather,
+                &[
+                    Feed::Carried(&hidden, hidden_shape.clone()),
+                    Feed::Owned(i64_tensor(vec![num_words as i64], record.word_first_positions())?),
+                ],
+                &[Sink::Device],
+            )?
+            .remove(0);
 
-        // ── 4. one pass per schema group ──────────────────────────────────
+        // 3. span_rep -> span_embeddings
+        let n_spans = (num_words * self.max_width) as i64;
+        let span_embeddings = self
+            .chain
+            .run(
+                &mut self.span_rep,
+                &[
+                    Feed::Carried(&text_embs, vec![1, num_words as i64, self.hidden as i64]),
+                    Feed::Owned(i64_tensor(
+                        vec![1, n_spans, 2],
+                        build_span_idx(num_words, self.max_width),
+                    )?),
+                ],
+                &[Sink::Device],
+            )?
+            .remove(0);
+        let span_shape = vec![1, num_words as i64, self.max_width as i64, self.hidden as i64];
+
+        // 4. one pass per schema group
         let mut result = SpanOutput::default();
         for task in &record.tasks {
             let m = task.labels.len();
@@ -382,37 +426,47 @@ impl SpanEngine {
             schema_indices.push(task.prompt_tok_idx as i64);
             schema_indices.extend(task.field_tok_indices.iter().map(|i| *i as i64));
 
-            let (pc_emb, field_embs) = {
-                let h = float_tensor(self.dtype, vec![1, seq, self.hidden as i64], hidden.clone())?;
-                let si = i64_tensor(vec![schema_indices.len() as i64], schema_indices)?;
-                let out = self.schema_gather.run(ort::inputs![h, si])?;
-                (
-                    take_float(&out["pc_emb"], self.dtype)?.1,
-                    take_float(&out["field_embs"], self.dtype)?.1,
-                )
+            // A classification group reads `field_embs` on the host to pad it,
+            // so ask for it there rather than copying it back afterwards.
+            let field_sink = match task.task_type {
+                TaskType::Classifications => Sink::Host,
+                _ => Sink::Device,
             };
+            let mut gathered = self.chain.run(
+                &mut self.schema_gather,
+                &[
+                    Feed::Carried(&hidden, hidden_shape.clone()),
+                    Feed::Owned(i64_tensor(vec![schema_indices.len() as i64], schema_indices)?),
+                ],
+                // declared order: pc_emb, field_embs
+                &[Sink::Device, field_sink],
+            )?;
+            let field_embs = gathered.remove(1);
+            let pc_emb = gathered.remove(0);
+            let field_shape = vec![m as i64, self.hidden as i64];
 
             match task.task_type {
                 TaskType::Classifications => {
                     let logits = match self.classifier_layout {
-                        ClassifierLayout::Flat => {
-                            let fe = float_tensor(
-                                self.dtype,
-                                vec![m as i64, self.hidden as i64],
-                                field_embs,
-                            )?;
-                            let out = self.classifier.run(ort::inputs![fe])?;
-                            take_float(&out["logits"], self.dtype)?.1
-                        }
+                        ClassifierLayout::Flat => self
+                            .chain
+                            .run(
+                                &mut self.classifier,
+                                &[Feed::Carried(&field_embs, field_shape.clone())],
+                                &[Sink::Host],
+                            )?
+                            .remove(0)
+                            .host(self.dtype)?,
                         ClassifierLayout::Padded => {
                             // The legacy graph wants [1, M, max_width, H]. The MLP
                             // acts on the last dimension, so replicating each row
                             // across max_width and reading back slice 0 is exact —
                             // just max_width times the arithmetic for one result.
                             let mw = self.max_width;
+                            let flat_embs = field_embs.host(self.dtype)?;
                             let mut padded = vec![0.0f32; m * mw * self.hidden];
                             for label in 0..m {
-                                let src = &field_embs[label * self.hidden..(label + 1) * self.hidden];
+                                let src = &flat_embs[label * self.hidden..(label + 1) * self.hidden];
                                 for w in 0..mw {
                                     let base = (label * mw + w) * self.hidden;
                                     padded[base..base + self.hidden].copy_from_slice(src);
@@ -423,8 +477,11 @@ impl SpanEngine {
                                 vec![1, m as i64, mw as i64, self.hidden as i64],
                                 padded,
                             )?;
-                            let out = self.classifier.run(ort::inputs![fe])?;
-                            let flat = take_float(&out["logits"], self.dtype)?.1;
+                            let flat = self
+                                .chain
+                                .run(&mut self.classifier, &[Feed::Owned(fe)], &[Sink::Host])?
+                                .remove(0)
+                                .host(self.dtype)?;
                             // [1, M, mw, 1] -> one logit per label
                             (0..m).map(|label| flat[label * mw]).collect()
                         }
@@ -448,40 +505,45 @@ impl SpanEngine {
                     }
                 }
                 TaskType::Entities | TaskType::Relations => {
-                    let pred_count = {
-                        let pc = float_tensor(self.dtype, vec![1, self.hidden as i64], pc_emb)?;
-                        let out = self.count_pred.run(ort::inputs![pc])?;
-                        take_i64(&out["pred_count"])?.1[0].max(0) as usize
-                    };
+                    let pred_count = self
+                        .chain
+                        .run(
+                            &mut self.count_pred,
+                            &[Feed::Carried(&pc_emb, vec![1, self.hidden as i64])],
+                            &[Sink::HostI64],
+                        )?
+                        .remove(0)
+                        .host_i64()?[0]
+                        .max(0) as usize;
                     let pred_count = pred_count.min(self.max_count);
                     if pred_count == 0 {
                         continue;
                     }
 
-                    let struct_proj = {
-                        let fe = float_tensor(
-                            self.dtype,
-                            vec![m as i64, self.hidden as i64],
-                            field_embs,
-                        )?;
-                        let out = self.count_lstm.run(ort::inputs![fe])?;
-                        take_float(&out["struct_proj"], self.dtype)?.1
-                    };
+                    let struct_proj = self
+                        .chain
+                        .run(
+                            &mut self.count_lstm,
+                            &[Feed::Carried(&field_embs, field_shape.clone())],
+                            &[Sink::Device],
+                        )?
+                        .remove(0);
 
-                    let scores = {
-                        let se = float_tensor(
-                            self.dtype,
-                            vec![1, num_words as i64, self.max_width as i64, self.hidden as i64],
-                            span_embeddings.clone(),
-                        )?;
-                        let sp = float_tensor(
-                            self.dtype,
-                            vec![self.max_count as i64, m as i64, self.hidden as i64],
-                            struct_proj,
-                        )?;
-                        let out = self.scorer.run(ort::inputs![se, sp])?;
-                        take_float(&out["entity_scores"], self.dtype)?.1
-                    };
+                    let scores = self
+                        .chain
+                        .run(
+                            &mut self.scorer,
+                            &[
+                                Feed::Carried(&span_embeddings, span_shape.clone()),
+                                Feed::Carried(
+                                    &struct_proj,
+                                    vec![self.max_count as i64, m as i64, self.hidden as i64],
+                                ),
+                            ],
+                            &[Sink::Host],
+                        )?
+                        .remove(0)
+                        .host(self.dtype)?;
 
                     self.collect_entities(
                         &scores,

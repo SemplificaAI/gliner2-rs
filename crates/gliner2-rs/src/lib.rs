@@ -36,6 +36,7 @@
 //! modules that change rarely. The cost is that a fix to them lands in two
 //! places; the alternative was worse.
 
+pub mod chain;
 pub mod error;
 /// Fetching a published export from the Hub when it is not on disk.
 #[cfg(feature = "hub")]

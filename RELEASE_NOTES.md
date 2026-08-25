@@ -1,3 +1,34 @@
+## [v0.8.0] - 2026-08-25
+### ✨ Features
+- **`IoBinding`, and one pipeline that does both.** The engine can now keep
+  intermediate tensors in device memory across the eight-fragment chain instead
+  of copying each one back to the host. On an RTX 3090 that is **2.4–2.5× faster**
+  (fp32 25.9 → 10.8 ms, fp16_iobinding 28.1 → 11.3 ms, 25 runs, median).
+
+  It is a switch, not a second engine: `SpanConfig::with_execution(..)`,
+  `GLINER2_EXECUTION=standard|binding|auto`, or the older
+  `GLINER2_NO_IOBINDING=1`, which still means what it meant. `Auto` is the
+  default and binds on a device provider, stays standard on CPU — where the copy
+  it would avoid does not exist and only the bookkeeping remains.
+
+  Writing the chain once is the point. The two transports lived in separate
+  crates before and drifted; now each step declares its inputs and where its
+  outputs should land, and `chain::Chain` decides the rest.
+- `SpanEngine::execution()` reports the mode in force, after `Auto` resolves and
+  after any fallback. A device allocation failure during binding drops the
+  engine to the standard path for the rest of its life rather than failing the
+  call.
+- New `dump_io` example: prints each fragment's declared inputs and outputs.
+  It earned its place — it caught the legacy `classifier` declaring its input as
+  `span_embeddings`, which a hard-coded name would have got wrong at run time.
+  Fragment inputs are now matched positionally, as `ort::inputs!` always did.
+
+### ✅ Verified
+- Identical entities and scores from both modes on GPU over the same input.
+- The standard path is byte-identical to 0.7.1 against the same ONNX Runtime
+  build — a different runtime version moves the last decimal on its own, which
+  is what made the first comparison look like a regression.
+
 ## [v0.7.1] - 2026-08-25
 ### 📚 Documentation
 - **ONNX Runtime 1.23 or newer is now a stated requirement.** Older runtimes run
