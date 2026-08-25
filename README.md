@@ -7,8 +7,8 @@
 **Native Rust inference for GLiNER2 on ONNX Runtime**
 
 Extract entities, relations and classifications from text with no Python at
-inference time. This repository is a Cargo workspace: a shared foundation, the
-span engine, and thin model-specific extensions on top.
+inference time. One crate: the span engine, with the PII and guardrail
+vocabularies behind default-on features.
 
 Written by **Dario Finardi**. Published by **Jugaad s.r.l.**, which uses it in
 production inside **Edito** and **Omissis** —
@@ -30,24 +30,84 @@ silent off-by-one.
 
 ```toml
 [dependencies]
-gliner2-rs = "0.6"
+gliner2-rs = "0.7"
 ```
 
-`gliner2-rs` never touches the network: it loads a model from a local directory
-and has no HTTP client, no TLS stack and no Hub client in its dependency tree.
-Fetch the ONNX export however you like — `hf download`, `git clone`, a build
-step — and hand it the path.
+`gliner2-rs` loads a model from a local directory, and fetches it from the Hub
+if that directory is empty — see [Getting the weights](#getting-the-weights).
+Switch the `hub` feature off and the crate has no HTTP client, no TLS stack and
+no Hub client in its dependency tree at all.
 
 `gliner2_inference` is the pre-split engine, kept in the repository for the
-V1 fallback and `from_pretrained`. It is **not published to crates.io**: depend
-on it by path or git if you want it. It is also the only thing here that pulls
-`hf-hub`, and through it `native-tls` and `openssl` — one more reason the
-published crate stays offline.
+V1 fallback and its own `from_pretrained`. It is **not published to crates.io**:
+depend on it by path or git if you want it. It is also the only thing here that
+pulls `openssl`, through `hf-hub`'s default `native-tls`; the published crate
+takes `hf-hub` with `rustls` instead and has no OpenSSL anywhere.
 
 0.1 split this into five crates — engine, two vocabularies, and the same again
 for GLiNER2.5. They were only ever installed as a set, so they are one crate and
 two features now. `--no-default-features` still drops either vocabulary if you
 want the engine bare.
+
+---
+
+## Getting the weights
+
+Point the engine at a directory. If it holds an export, it is used untouched.
+If it does not, the export is fetched from the Hub before the engine starts:
+
+```rust
+use gliner2_rs::{SpanConfig, SpanEngine, hub};
+
+let cfg = SpanConfig::new("models/pii-onnx").or_download(hub::PRIVACY_PII_MULTI);
+let mut engine = SpanEngine::new(cfg)?;   // downloads only if the directory is empty
+```
+
+Skip the local path entirely and work straight out of the cache:
+
+```rust
+let mut engine = SpanEngine::new(SpanConfig::from_hub(hub::GUARDRAILS_PII_MULTI))?;
+```
+
+**The local directory always wins.** A checkout already on disk is never
+re-fetched, and the network is reached only on a miss. Files land in the shared
+Hub cache (`HF_HOME`, else `~/.cache/huggingface`), so a model already pulled by
+the Python library is not pulled again.
+
+| constant | repository |
+|---|---|
+| `hub::GLINER2_MULTI_V1` | [`jugaadsrl/gliner2-multi-v1-onnx`](https://huggingface.co/jugaadsrl/gliner2-multi-v1-onnx) |
+| `hub::PRIVACY_PII_MULTI` | [`jugaadsrl/gliner2-privacy-filter-PII-multi-onnx`](https://huggingface.co/jugaadsrl/gliner2-privacy-filter-PII-multi-onnx) |
+| `hub::GUARDRAILS_PII_MULTI` | [`jugaadsrl/GLiNER2-Guardrails-PII-Multi-onnx`](https://huggingface.co/jugaadsrl/GLiNER2-Guardrails-PII-Multi-onnx) |
+
+Any other repository works — `hub::Model::new(repo_id, layout)` takes a private
+fine-tune as readily as a published one. `layout` says whether the fragments sit
+at the repository root or under `fp32_v2/` and `fp16_v2/`, as the earlier
+exports do.
+
+Try it:
+
+```sh
+ORT_DYLIB_PATH=… cargo run --release --example download -p gliner2-rs -- models/pii-onnx
+```
+
+### If you would rather it never touched the network
+
+```toml
+gliner2-rs = { version = "0.7", default-features = false, features = ["guardrails", "privacy"] }
+```
+
+That removes `hf-hub`, `ureq` and `rustls` and leaves the crate with no network
+stack whatsoever. Fetch the export however you like — `hf download`, `git
+clone`, a build step — and hand `SpanConfig::new` the path.
+
+### On the TLS backend
+
+`hf-hub` arrives with `default-features = false, features = ["ureq"]`, which
+resolves TLS through **`rustls`**. Its default feature set pulls `native-tls`
+and with it `openssl` — a C library and the CVE stream that comes with it — for
+no benefit here. Downloading weights over HTTPS does not need OpenSSL, so this
+crate does not carry it.
 
 ---
 

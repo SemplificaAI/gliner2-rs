@@ -117,6 +117,12 @@ pub fn download(model: Model, precision: Precision) -> Result<PathBuf> {
                 model.repo_id
             ))
         })?;
+        // A fragment past the 2 GB protobuf limit keeps its weights in a sidecar
+        // `.onnx.data`, which ONNX Runtime opens by relative name at session
+        // build time. Most fragments have none, so a miss here is not an error -
+        // but a fragment that has one and does not get it fails at load, not at
+        // download, with a filesystem error naming a file nobody asked for.
+        let _ = repo.get(&format!("{file}.data"));
         last = Some(path);
     }
 

@@ -1,3 +1,27 @@
+## [v0.7.0] - 2026-08-25
+### ✨ Features
+- **The engine fetches its own weights.** `SpanConfig::or_download(model)` names
+  a repository to fall back to, and `SpanEngine::new` fetches it when the model
+  directory holds no fragments. A directory that already has them is used
+  untouched: the local checkout always wins and the network is reached only on a
+  miss. `SpanConfig::from_hub(model)` skips the local path and works out of the
+  shared Hub cache.
+- `hub::GLINER2_MULTI_V1`, `hub::PRIVACY_PII_MULTI` and
+  `hub::GUARDRAILS_PII_MULTI` name the published exports, so callers choose a
+  model rather than an URL. `hub::Model::new` takes any other repository,
+  private fine-tunes included, and carries the layout — the earlier exports keep
+  their fragments under `fp32_v2/` and `fp16_v2/` while the newer ones are flat.
+- On by default. A crate that cannot obtain its own weights makes every caller
+  write the same download step. `default-features = false` still leaves the
+  crate with no network stack at all.
+
+### 🔒 Dependencies
+- `hf-hub` enters with `default-features = false, features = ["ureq"]`, putting
+  TLS on **`rustls`**. Its default set pulls `native-tls` and with it `openssl`,
+  a C library and the CVE stream that comes with it, for no benefit here.
+  Measured on the published crate: `rustls` 0.23 and `ureq` 3.3 present,
+  `openssl` and `native-tls` absent. `cargo audit` clean.
+
 ## [v0.6.1] - 2026-08-25
 ### 📚 Documentation
 - **Quick start was broken.** It ran `--example extract -p gliner2-rs`, but that
