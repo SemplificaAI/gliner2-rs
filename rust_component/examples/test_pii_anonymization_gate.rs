@@ -3,7 +3,7 @@ use serde_json::json;
 use std::env;
 
 fn build_engine() -> anyhow::Result<Gliner2Engine> {
-    let repo_id = "jugaadsrl/gliner2-privacy-filter-PII-multi";
+    let repo_id = "jugaadsrl/gliner2-privacy-filter-PII-multi-onnx";
     let subfolder = Some("fp16_v2");
     let model_type = ModelType::HuggingFace;
 

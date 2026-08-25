@@ -32,9 +32,12 @@
 - Repository URL updated to `dariofinardi/gliner2-rs`; the old
   `SemplificaAI/gliner2-rs` only worked through a GitHub redirect.
 - Every reference to Semplifica removed. HuggingFace model ids move from
-  `SemplificaAI/...` to `jugaadsrl/...` to follow the repositories, which are
-  being transferred to the Jugaad organisation. If you pinned the old ids,
-  update them.
+  `SemplificaAI/...` to `jugaadsrl/...`, following the repositories transferred
+  to the Jugaad organisation. The PII export is also renamed:
+  `SemplificaAI/gliner2-privacy-filter-PII-multi` is now
+  `jugaadsrl/gliner2-privacy-filter-PII-multi-onnx`. The Hub redirects the old
+  ids, but pinning the canonical one is safer — a redirect hides the rename
+  until the day it stops resolving.
 
 ## [v0.5.1] - 2026-05-19
 ### ⚠️ Runtime Stability
@@ -45,7 +48,7 @@
 - Added `mask_pii_text()` utility to redact text from extracted PII spans.
 - Extended `ExtractedEntity` with `start_char` / `end_char` offsets for robust masking.
 - Added `rust_component/examples/test_pii_anonymization_gate.rs` to output `needs_anonymization` + `redacted_text`.
-- Updated docs for loading `jugaadsrl/gliner2-privacy-filter-PII-multi` from `fp16_v2`.
+- Updated docs for loading `jugaadsrl/gliner2-privacy-filter-PII-multi-onnx` from `fp16_v2`.
 
 ## [v0.5.0] - 2026-04-23
 ### ✨ New Features & API Improvements

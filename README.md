@@ -215,13 +215,13 @@ fn main() -> anyhow::Result<()> {
 ## Model Types
 
 ### Privacy / PII Model Support
-- **Target model**: `jugaadsrl/gliner2-privacy-filter-PII-multi`
+- **Target model**: `jugaadsrl/gliner2-privacy-filter-PII-multi-onnx`
 - For this repository, the model is served as ONNX V2 fragments under `fp16_v2` / `fp32_v2`.
 - To load from HuggingFace with this crate, use:
 
 ```rust
 let engine = Gliner2Engine::from_pretrained(
-    "jugaadsrl/gliner2-privacy-filter-PII-multi",
+    "jugaadsrl/gliner2-privacy-filter-PII-multi-onnx",
     Some("fp16_v2"),
     ModelType::HuggingFace,
 )?;
