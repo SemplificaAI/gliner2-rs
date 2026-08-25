@@ -26,16 +26,23 @@ silent off-by-one.
 | crate | what it is | docs |
 |---|---|---|
 | [`gliner2-rs`](crates/gliner2-rs) | the engine, plus the PII and guardrail vocabularies behind default-on features | [README](crates/gliner2-rs/README.md) |
-| [`gliner2-inference`](crates/gliner2-inference) | the original engine: V1 pipeline, HuggingFace downloader | [README](crates/gliner2-inference/README.md) |
+| `gliner2_inference` | the original engine: V1 pipeline, HuggingFace downloader. In-repo only, **not published** | [README](crates/gliner2-inference/README.md) |
 
 ```toml
 [dependencies]
 gliner2-rs = "0.6"
 ```
 
-`gliner2-inference` predates the split and stays as it is: edition 2021, its own
-V1 fallback and `from_pretrained`. Use it if you want models pulled from the Hub
-automatically. Use `gliner2-rs` for everything else.
+`gliner2-rs` never touches the network: it loads a model from a local directory
+and has no HTTP client, no TLS stack and no Hub client in its dependency tree.
+Fetch the ONNX export however you like — `hf download`, `git clone`, a build
+step — and hand it the path.
+
+`gliner2_inference` is the pre-split engine, kept in the repository for the
+V1 fallback and `from_pretrained`. It is **not published to crates.io**: depend
+on it by path or git if you want it. It is also the only thing here that pulls
+`hf-hub`, and through it `native-tls` and `openssl` — one more reason the
+published crate stays offline.
 
 0.1 split this into five crates — engine, two vocabularies, and the same again
 for GLiNER2.5. They were only ever installed as a set, so they are one crate and
