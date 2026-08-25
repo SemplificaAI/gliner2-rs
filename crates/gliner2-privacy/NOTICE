@@ -1,0 +1,43 @@
+gliner2-rs
+Copyright 2026 Dario Finardi. Published by Jugaad s.r.l.
+
+Licensed under the Apache License, Version 2.0 — see LICENSE.
+
+This is an independent Rust implementation, not a port of existing code: the
+inference engine was written from scratch against ONNX Runtime. The per-file
+copyright headers state the same.
+
+
+MODEL OWNERSHIP
+
+The models this project converts and runs are not ours, and converting a model
+does not change its licence or its ownership.
+
+  - GLiNER2 is developed by Fastino (https://fastino.ai). See arXiv:2507.18546.
+    The weights this engine loads originate from https://huggingface.co/fastino
+    and remain subject to the licence their publisher sets. Check it before
+    redistributing them with an application.
+
+  - GLiNER (Generalist Model for Named Entity Recognition), the line these
+    models descend from, is the work of Urchade Zaratiana et al.
+    See arXiv:2311.08526.
+
+  - No model weights are distributed from this repository. The ONNX exports
+    published under https://huggingface.co/jugaadsrl are derived artefacts of
+    upstream checkpoints and carry their licence; the conversion adds no
+    ownership claim over the model.
+
+  - The conversion scripts under onnx_conversion_scripts/ operate on those
+    upstream models and produce derived artefacts. Converting a model does not
+    change its licence.
+
+This project implements inference for those models and claims no ownership
+over them. What is ours is the engine, the exporters and the tests.
+
+
+THIRD-PARTY DEPENDENCIES
+
+  - ONNX Runtime (https://github.com/microsoft/onnxruntime) — MIT, linked at
+    runtime, not redistributed from here.
+  - The Rust crates listed in rust_component/Cargo.toml, each under its own
+    licence.
