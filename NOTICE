@@ -1,5 +1,5 @@
 gliner2-rs
-Copyright 2026 Dario Finardi, Semplifica s.r.l.
+Copyright 2026 Dario Finardi. Published by Jugaad s.r.l.
 
 Licensed under the Apache License, Version 2.0 — see LICENSE.
 
@@ -11,8 +11,8 @@ What it does depend on, and what stays under its own terms:
 
   - GLiNER2 model weights — not distributed with this repository.
     The engine loads ONNX exports of GLiNER2 models published by
-    Knowledgator (https://huggingface.co/knowledgator). The weights
-    remain subject to the licence of their publisher; check it before
+    Fastino (https://huggingface.co/fastino). The weights remain
+    subject to the licence of their publisher; check it before
     redistributing them with an application.
 
   - The ONNX conversion scripts under onnx_conversion_scripts/ operate on
@@ -23,6 +23,6 @@ What it does depend on, and what stays under its own terms:
     linked at runtime, not redistributed from here.
 
 GLiNER (Generalist Model for Named Entity Recognition) is the work of
-Urchade Zaratiana et al.; GLiNER2 is developed by Knowledgator. This
-project implements inference for those models and claims no ownership
-over them.
+Urchade Zaratiana et al.; GLiNER2 is developed by Fastino
+(https://fastino.ai, arXiv:2507.18546). This project implements
+inference for those models and claims no ownership over them.

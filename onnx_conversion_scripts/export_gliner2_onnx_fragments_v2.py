@@ -75,7 +75,7 @@ Uso:
 
     # Modello pubblico ufficiale (scarica da HF):
     python export_gliner2_onnx_fragments_v2.py \\
-        --model_path SemplificaAI/gliner2-multi-v1 \\
+        --model_path jugaadsrl/gliner2-multi-v1 \\
         --out_dir models/fastino_gliner2_multi_v1_fp16_iobinding
 """
 
@@ -702,7 +702,7 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--out_dir",
-        default="models/semplifica_gliner2_multi_v1_fp16_iobinding",
+        default="models/jugaad_gliner2_multi_v1_fp16_iobinding",
         help="Directory di output per i modelli v2",
     )
     return p.parse_args()

@@ -1,4 +1,4 @@
-// Copyright 2026 Dario Finardi, Semplifica s.r.l.
+// Copyright 2026 Dario Finardi. Published by Jugaad s.r.l.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.

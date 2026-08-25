@@ -1,4 +1,4 @@
-// Copyright 2026 Dario Finardi, Semplifica s.r.l.
+// Copyright 2026 Dario Finardi. Published by Jugaad s.r.l.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -90,10 +90,15 @@ impl WhitespaceTokenSplitter {
             .collect()
     }
 
-    pub fn split_with_offsets<'a>(&self, text: &'a str) -> Vec<(&'a str, usize, usize)> {
+    /// Mirrors `WhitespaceTokenSplitter.__call__(text, lower=True)`: matching
+    /// happens on the **original** text so offsets index the caller's string,
+    /// and only the token value is lower-cased. Lower-casing the source first
+    /// would be unsafe, because Unicode case folding can change its length and
+    /// corrupt the offsets.
+    pub fn split_with_offsets(&self, text: &str) -> Vec<(String, usize, usize)> {
         self.re
             .find_iter(text)
-            .map(|m| (m.as_str(), m.start(), m.end()))
+            .map(|m| (m.as_str().to_lowercase(), m.start(), m.end()))
             .collect()
     }
 }
@@ -130,8 +135,10 @@ impl SchemaTransformer {
                     combined_tokens.push("(");
                     
                     for label in entity_labels {
-                        combined_tokens.push(E_TOKEN);
+                        // position of the marker itself, matching Python's
+                        // `schema_marker_orig_indices`
                         field_indices.push(combined_tokens.len());
+                        combined_tokens.push(E_TOKEN);
                         combined_tokens.push(label.as_str());
                         labels.push(label.clone());
                     }
@@ -154,8 +161,10 @@ impl SchemaTransformer {
                     combined_tokens.push("(");
                     
                     for field in fields {
-                        combined_tokens.push(R_TOKEN);
+                        // position of the marker itself, matching Python's
+                        // `schema_marker_orig_indices`
                         field_indices.push(combined_tokens.len());
+                        combined_tokens.push(R_TOKEN);
                         combined_tokens.push(field.as_str());
                         labels.push(field.clone());
                     }
@@ -178,8 +187,10 @@ impl SchemaTransformer {
                     combined_tokens.push("(");
                     
                     for label in cls_labels {
-                        combined_tokens.push(L_TOKEN); // or C_TOKEN? gliner2 uses L_TOKEN? Let's check python logic. Actually wait.
+                        // position of the marker itself, matching Python's
+                        // `schema_marker_orig_indices`
                         field_indices.push(combined_tokens.len());
+                        combined_tokens.push(L_TOKEN);
                         combined_tokens.push(label.as_str());
                         labels.push(label.clone());
                     }
@@ -206,7 +217,7 @@ impl SchemaTransformer {
         
         let mut word_to_char_maps = Vec::new();
         for (w, start_char, end_char) in &words_with_offsets {
-            combined_tokens.push(*w);
+            combined_tokens.push(w.as_str());
             word_to_char_maps.push((*start_char, *end_char));
         }
         let text_end_idx = combined_tokens.len();
@@ -217,16 +228,11 @@ impl SchemaTransformer {
         
         let mut combined_to_final_map = HashMap::new();
         
-        // Niente unwrap: un tokenizer.json corrotto o un vocabolario senza
-        // i token speciali deve produrre un errore leggibile, non un panic
-        // dentro spawn_blocking che uccide l'intera analisi (NER-2).
-        let cls_id = self.tokenizer.encode("[CLS]", false)
-            .map_err(|e| anyhow!("encode [CLS]: {e}"))?
-            .get_ids().first().copied()
-            .ok_or_else(|| anyhow!("[CLS] assente dal vocabolario"))? as i64;
-        final_input_ids.push(cls_id);
-        final_attention_mask.push(1);
-        let mut current_subword_idx = 1;
+        // gliner2 non incapsula il prompt fra [CLS] e [SEP]: la sequenza inizia
+        // sulla prima `(` del primo gruppo di schema e finisce sull'ultima
+        // parola del testo. Incapsularlo dava al modello un formato su cui non
+        // e' stato addestrato.
+        let mut current_subword_idx = 0;
 
         for (i, token) in combined_tokens.iter().enumerate() {
             combined_to_final_map.insert(i, current_subword_idx);
@@ -248,13 +254,6 @@ impl SchemaTransformer {
                 word_to_token_maps.push((start_sub, end_sub));
             }
         }
-        
-        let sep_id = self.tokenizer.encode("[SEP]", false)
-            .map_err(|e| anyhow!("encode [SEP]: {e}"))?
-            .get_ids().first().copied()
-            .ok_or_else(|| anyhow!("[SEP] assente dal vocabolario"))? as i64;
-        final_input_ids.push(sep_id);
-        final_attention_mask.push(1);
         
         let text_real_start = word_to_token_maps.first().map(|v| v.0).unwrap_or(0);
         let text_real_end = word_to_token_maps.last().map(|v| v.1).unwrap_or(0);
@@ -286,5 +285,86 @@ impl SchemaTransformer {
             word_to_token_maps,
             word_to_char_maps,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Locates a gliner2 `tokenizer.json`. Model directories are gitignored, so
+    /// the test skips instead of failing when none is available.
+    fn tokenizer_path() -> Option<std::path::PathBuf> {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        [
+            "models/gliner2-multi-v1-onnx-v2/tokenizer.json",
+            "models/gliner2-multi-finetuned-v2/tokenizer.json",
+            "models/iobinding_test/tokenizer.json",
+            "../models/fastino_gliner2_multi_v1_fp32/tokenizer.json",
+            "../models/jugaad_gliner2_multi_v1_fp32/tokenizer.json",
+        ]
+        .iter()
+        .map(|p| root.join(p))
+        .find(|p| p.exists())
+    }
+
+    /// Ground truth produced by running gliner2 2.0.0. The prompt layout is
+    ///
+    /// ```text
+    /// ["(", "[P]", prompt_str, "("] + [child_prefix, field_name] * N + [")", ")"]
+    /// ```
+    ///
+    /// and for `entities(person, organization, location)` plus
+    /// `classification(sentiment, ...)` on
+    /// `"Mario Rossi lavora ad Apple a Cupertino."` it yields
+    ///
+    /// ```text
+    /// schema_special_positions  = [[1, 6, 8, 10], [18, 21, 23]]
+    /// text_word_first_positions = [31, 33, 35, 36, 37, 38, 40, 43]
+    /// ```
+    ///
+    /// which pins all three properties at once: no `[CLS]`/`[SEP]` wrapping,
+    /// field indices on the markers rather than the labels, and lower-cased
+    /// text words.
+    #[test]
+    fn ground_truth_prompt_layout() {
+        let Some(path) = tokenizer_path() else {
+            eprintln!("no tokenizer.json available, test skipped");
+            return;
+        };
+        let tokenizer = Tokenizer::from_file(&path).expect("tokenizer");
+        let transformer = SchemaTransformer::new(tokenizer);
+
+        let tasks = vec![
+            SchemaTask::Entities(vec![
+                "person".to_string(),
+                "organization".to_string(),
+                "location".to_string(),
+            ]),
+            SchemaTask::Classifications(
+                "sentiment".to_string(),
+                vec!["positive".to_string(), "negative".to_string()],
+            ),
+        ];
+        let record = transformer
+            .transform("Mario Rossi lavora ad Apple a Cupertino.", &tasks)
+            .expect("transform");
+
+        assert_eq!(record.tasks[0].prompt_tok_idx, 1);
+        assert_eq!(record.tasks[0].field_tok_indices, vec![6, 8, 10]);
+        assert_eq!(record.tasks[1].prompt_tok_idx, 18);
+        assert_eq!(record.tasks[1].field_tok_indices, vec![21, 23]);
+
+        let word_starts: Vec<usize> =
+            record.word_to_token_maps.iter().map(|(s, _)| *s).collect();
+        assert_eq!(word_starts, vec![31, 33, 35, 36, 37, 38, 40, 43]);
+        assert_eq!(record.word_to_token_maps.len(), 8);
+        assert_eq!(record.input_ids.len(), 45);
+        assert_eq!(record.input_ids.len(), record.attention_mask.len());
+
+        // offsets index the original text, so casing survives
+        let text = "Mario Rossi lavora ad Apple a Cupertino.";
+        let (s, e) = record.word_to_char_maps[0];
+        assert_eq!(&text[s..e], "Mario");
     }
 }
