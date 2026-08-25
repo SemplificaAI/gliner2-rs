@@ -626,6 +626,7 @@ version = "0.6.1"
 dependencies = [
  "anyhow",
  "half",
+ "hf-hub",
  "ndarray",
  "ort",
  "regex",

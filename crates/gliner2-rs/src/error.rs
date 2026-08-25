@@ -20,6 +20,9 @@ pub enum GlinerError {
     IncompleteModelDir(String),
     /// E_GLI_007: no exported length bucket is large enough for the text.
     NoLengthBucket { words: usize, max_bucket: usize },
+    /// E_GLI_008: the export could not be fetched from the Hub.
+    #[cfg(feature = "hub")]
+    Hub(String),
     /// Anything else (tokenizer, IO, ONNX Runtime...).
     Other(anyhow::Error),
 }
@@ -27,6 +30,8 @@ pub enum GlinerError {
 impl fmt::Display for GlinerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            #[cfg(feature = "hub")]
+            Self::Hub(m) => write!(f, "[E_GLI_008] HUB_FETCH: {m}"),
             Self::OomDeviceBinding(m) => write!(f, "[E_GLI_001] OOM_DEVICE_BINDING: {m}"),
             Self::OomDeviceStandard(m) => write!(f, "[E_GLI_002] OOM_DEVICE_STANDARD: {m}"),
             Self::OomHostRam(m) => write!(f, "[E_GLI_003] OOM_HOST_RAM: {m}"),

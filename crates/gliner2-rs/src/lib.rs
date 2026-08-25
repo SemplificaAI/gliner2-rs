@@ -37,6 +37,9 @@
 //! places; the alternative was worse.
 
 pub mod error;
+/// Fetching a published export from the Hub when it is not on disk.
+#[cfg(feature = "hub")]
+pub mod hub;
 pub mod overlap;
 pub mod processor;
 pub mod runtime;

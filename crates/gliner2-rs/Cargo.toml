@@ -19,13 +19,14 @@ tokenizers.workspace = true
 anyhow.workspace = true
 half.workspace = true
 regex.workspace = true
+hf-hub = { workspace = true, optional = true }
 
 [dev-dependencies]
 serde_json.workspace = true
 serde.workspace = true
 
 [features]
-default = ["guardrails", "privacy"]
+default = ["guardrails", "privacy", "hub"]
 
 # The model-specific vocabularies. On by default: anyone using one of these
 # checkpoints wants them, and they are tables of labels plus a few helpers - a
@@ -34,6 +35,13 @@ default = ["guardrails", "privacy"]
 # together.
 guardrails = []
 privacy = []
+
+# Fetches a published export from the Hub when the model directory is empty.
+# On by default: a crate that cannot obtain its own weights makes every caller
+# write the same download step. `hf-hub` comes in without default features, so
+# TLS resolves through `rustls` and no `openssl` enters the tree. Switching the
+# feature off leaves the crate with no network stack at all.
+hub = ["dep:hf-hub"]
 
 # Helpers that locate a tokenizer.json under the workspace, for pinning the
 # prompt layout against the same ground truth from outside the crate.
