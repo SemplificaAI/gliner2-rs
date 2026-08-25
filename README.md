@@ -218,9 +218,44 @@ Each crate README has worked examples for its own vocabulary.
 - `ort` **≥ 2.0.0-rc.13, < 3.0**, with `default-features = false` — nothing is
   downloaded at build time and no execution-provider libraries are copied next
   to your binary.
-- ONNX Runtime shared library, resolved at run time from `ORT_DYLIB_PATH`.
-  Verified against ONNX Runtime 1.25.1 at API level 17, and against the
-  `onnxruntime-gpu` 1.23.2 build for CUDA.
+- ONNX Runtime shared library **1.23 or newer**, resolved at run time from
+  `ORT_DYLIB_PATH`. Verified against ONNX Runtime 1.25.1 at API level 17, and
+  against the `onnxruntime-gpu` 1.23.2 build for CUDA.
+
+  **Older runtimes segfault when the process exits.** The API level `ort`
+  requires is 17, which runtimes well below 1.23 satisfy — so an old shared
+  library loads, runs correctly, and then crashes on the way out. One binary,
+  three runtimes:
+
+  | ONNX Runtime | inference | exit code |
+  |---|---|---|
+  | 1.20.0 | correct | **139 — SIGSEGV** |
+  | 1.22.0 | correct | **139 — SIGSEGV** |
+  | 1.23.2 | correct | 0 |
+
+  The scores are identical in all three; only the exit differs. The crash lands
+  after `main` returns, so output is complete and nothing is corrupted — but the
+  exit code breaks CI, shell `&&` chains and process supervisors, and in a
+  long-running server it surfaces at shutdown.
+
+  It is not this crate, and it is not the CUDA EP either — this is CPU-only.
+  The same fault reproduces in twenty lines of `ort` with no GLiNER code
+  involved: create a session, drop it, return from `main`. It goes away if the
+  session is leaked instead of dropped, and it reproduces with one intra-op
+  thread as readily as with four, so it is not the thread pool.
+
+  The root cause is `ort`'s global `Environment` being released at process exit
+  after the session state it refers to is gone. It is fixed upstream by
+  [pykeio/ort#610](https://github.com/pykeio/ort/pull/610) (details and
+  measurements in [pykeio/ort#614](https://github.com/pykeio/ort/issues/614)),
+  which makes the
+  environment manual instead of global — verified here: `ort` from git exits
+  cleanly even against ONNX Runtime 1.20.0. That change is **not in rc.13**, the
+  newest release, so until it ships the runtime version is what decides it.
+
+  If you are pinned to an older runtime, `std::process::exit(0)` at the end of
+  `main` sidesteps the crash, at the cost of skipping every other destructor
+  too.
 
   **The rc.13 floor is not arbitrary.** Release candidates 10 through 12 were
   tried and rejected: on **ARM CPU** some models hung during session

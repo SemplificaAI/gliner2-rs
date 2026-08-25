@@ -1,3 +1,17 @@
+## [v0.7.1] - 2026-08-25
+### 📚 Documentation
+- **ONNX Runtime 1.23 or newer is now a stated requirement.** Older runtimes run
+  correctly and then segfault when the process exits — exit 139, after `main`
+  returns, with complete and byte-identical output. Measured with one binary:
+  1.20.0 and 1.22.0 crash, 1.23.2 does not.
+
+  The cause is `ort`'s global `Environment` being released at exit after the
+  session state it refers to is gone, and it is not this crate: it reproduces in
+  twenty lines of `ort` with no EP and no GLiNER code. Fixed upstream by
+  pykeio/ort#610, which is not in rc.13; reported with measurements as
+  pykeio/ort#614. `ORT_API_VERSION` is 17 and old runtimes satisfy it, so nothing
+  warns you — hence the note in Requirements.
+
 ## [v0.7.0] - 2026-08-25
 ### ✨ Features
 - **The engine fetches its own weights.** `SpanConfig::or_download(model)` names
