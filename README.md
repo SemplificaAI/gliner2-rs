@@ -179,16 +179,17 @@ goes unnoticed otherwise:
 |---|---|---|---|---|
 | guardrails, 13 cases / 6 languages | CPU | 61/61 (0.0001) | 61/61 (0.0034) | 61/61 (0.0035) |
 | guardrails | RTX 3090 | 61/61 (0.0001) | 61/61 (0.0036) | 61/61 (0.0035) |
-| privacy, 13 cases / 7 languages | CPU | — | 58/58 (0.0023) | 58/58 (0.0021) |
-| privacy | RTX 3090 | — | 58/58 (0.0022) | 58/58 (0.0021) |
+| privacy, 13 cases / 7 languages | CPU | 58/58 (**0.0000**) | 58/58 (0.0023) | 58/58 (0.0021) |
+| privacy | RTX 3090 | 58/58 (**0.0000**) | 58/58 (0.0022) | 58/58 (0.0021) |
 
-Spans identical to the PyTorch reference in all ten configurations; the figure in
-brackets is the largest score delta. The `fp32` privacy rows are **absent, not
-failing** — that export's `fp32_v2/` folder was not fetched locally.
+Spans identical to the PyTorch reference in all twelve configurations; the figure
+in brackets is the largest score delta.
 
-The CUDA path agrees with the CPU one to within FP16 rounding: 0.0034 against
-0.0036 on the same case. Whatever else changes when you move to a GPU, the
-answers do not.
+Two things worth reading off that table. In `fp32` the privacy export matches
+PyTorch **exactly** — not to within a tolerance, to the fourth decimal the
+harness records — on both devices. And the CUDA path agrees with the CPU one to
+within FP16 rounding, 0.0034 against 0.0036 on the same case. Whatever else
+changes when you move to a GPU, the answers do not.
 
 ```sh
 python onnx_conversion_scripts/compare_with_pytorch.py reference \

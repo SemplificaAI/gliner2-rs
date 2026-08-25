@@ -59,15 +59,22 @@ which is the cleanest estimate of uncontended time.
 | Ryzen 5900XT | `fp16` | 1717 ms | 921 ms | 3882 ms | 132 ms |
 | Ryzen 5900XT | `fp16_iobinding` | 3200 ms | 1271 ms | 3556 ms | 246 ms |
 
-`gliner2-privacy`, legacy export. The `fp32_v2/` folder was not downloaded
-locally, so those rows are **absent, not zero**:
+`gliner2-privacy`, legacy export, 15 entities:
 
 | device | precision | median | min | p95 | per entity |
 |---|---|---|---|---|---|
+| RTX 3090 | `fp32` | 27.1 ms | 23.7 ms | 30.4 ms | 1.81 ms |
 | RTX 3090 | `fp16` | **24.9 ms** | 22.2 ms | 34.1 ms | 1.66 ms |
 | RTX 3090 | `fp16_iobinding` | 25.1 ms | 22.6 ms | 38.4 ms | 1.67 ms |
+| Ryzen 5900XT | `fp32` | 2697 ms | 1652 ms | 3337 ms | 180 ms |
 | Ryzen 5900XT | `fp16` | 2676 ms | 959 ms | 3993 ms | 178 ms |
 | Ryzen 5900XT | `fp16_iobinding` | 3443 ms | 1409 ms | 4060 ms | 230 ms |
+
+Note that `fp32` and `fp16` swap places between the two models on GPU — `fp32`
+wins on guardrails, `fp16` on privacy — and both gaps are around 10%, inside the
+spread of a single configuration on this host. **That ordering is not a
+finding.** What survives across both models is only the `fp16_iobinding` penalty
+on CPU.
 
 Load time is 8–16 s in every configuration, dominated by reading the 530 MB–1 GB
 encoder from disk.
@@ -136,14 +143,18 @@ reference:
 |---|---|---|---|---|
 | guardrails | CPU | 61/61 (0.0001) | 61/61 (0.0034) | 61/61 (0.0035) |
 | guardrails | RTX 3090 | 61/61 (0.0001) | 61/61 (0.0036) | 61/61 (0.0035) |
-| privacy | CPU | — | 58/58 (0.0023) | 58/58 (0.0021) |
-| privacy | RTX 3090 | — | 58/58 (0.0022) | 58/58 (0.0021) |
+| privacy | CPU | 58/58 (**0.0000**) | 58/58 (0.0023) | 58/58 (0.0021) |
+| privacy | RTX 3090 | 58/58 (**0.0000**) | 58/58 (0.0022) | 58/58 (0.0021) |
 
 Identical spans everywhere; brackets give the largest score delta. The CUDA
 kernels agree with the CPU ones to within FP16 rounding — 0.0034 against 0.0036
 on the same case — so the device is a performance decision, not an accuracy one.
-The `fp32` privacy rows are absent because that export's `fp32_v2/` folder was
-not fetched locally, not because they failed.
+
+The `fp32` privacy rows are exact: zero deviation from PyTorch at the fourth
+decimal the harness records, on both devices. That is the cleanest evidence in
+this document that the export itself is faithful, and it puts a floor under
+every other row — whatever deviation the FP16 variants show is quantisation,
+not a bug in the graphs.
 
 ## Reproducing
 
