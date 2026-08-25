@@ -1,3 +1,40 @@
+## [v0.6.1] - 2026-08-25
+### 📚 Documentation
+- **Quick start was broken.** It ran `--example extract -p gliner2-rs`, but that
+  example became `extract_pii.rs` during the single-crate consolidation, so the
+  first command a new reader copies failed with `no example target named
+  extract`. Every `cargo run --example` line in `README.md` and `BENCHMARKS.md`
+  is now verified by building it, not by reading it.
+- **Names left behind by the refactor.** The model-compatibility table's last
+  column was headed *crate to use* and listed `gliner2-core`, `gliner2-privacy`
+  and `gliner2-guardrails`, none of which are packages any more; it now names the
+  `privacy` and `guardrails` features. Two `-p gliner2-privacy` invocations and a
+  stale crate name in `BENCHMARKS.md` went the same way. Hub identifiers such as
+  `fastino/gliner2-privacy-filter-PII-multi` are deliberately untouched — they
+  resemble the retired crate names but remain correct.
+- **The published crate has no network stack.** The README implied
+  `gliner2-inference` was installable and suggested it for automatic Hub
+  downloads; it is not published to crates.io, and its package name carries an
+  underscore. Replaced with what a fresh consumer of the published crate actually
+  gets: no `openssl`, `native-tls`, `hf-hub`, `reqwest`, `ureq`, `rustls` or
+  `hyper` anywhere in the tree. Models load from a local path.
+
+### 🔒 Dependencies
+- Lockfile advisories cleared: `openssl` 0.10.78 → 0.10.79 (CVE-2026-42327),
+  `h2` → 0.4.16, `rustls-webpki` → 0.103.13, `crossbeam-epoch` → 0.9.20,
+  `anyhow` → 1.0.103. All transitive and none reachable from the published
+  crate, which carries no TLS stack at all; `openssl` entered only through the
+  unpublished in-repo `gliner2_inference`. `cargo audit` is clean.
+
+## [v0.6.0] - 2026-08-25
+### 💥 Breaking
+- **Five crates became one.** `gliner2-core`, `gliner2-guardrails` and
+  `gliner2-privacy` are merged into `gliner2-rs`, which takes the repository's
+  name. The vocabularies are now modules behind default-on `guardrails` and
+  `privacy` features; `--no-default-features` still drops them. They were only
+  ever installed as a set, so the split imposed three dependency lines and no
+  saving. The 0.1.0 crates are yanked.
+
 ## [v0.5.2] - 2026-08-25
 ### 🐛 Fixes
 - **Prompt layout aligned with `gliner2`.** `SchemaTransformer` diverged from
