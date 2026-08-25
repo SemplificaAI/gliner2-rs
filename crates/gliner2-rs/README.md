@@ -1,19 +1,27 @@
-# gliner2-core
+# gliner2-rs
 
 The GLiNER2 **span**-architecture inference engine, on ONNX Runtime via `ort`
 2.0.0-rc.13.
 
-Runs any GLiNER2 span export. Model-specific vocabularies live in the extensions
-on top: [`gliner2-guardrails`](../gliner2-guardrails) and
-[`gliner2-privacy`](../gliner2-privacy). Start there if your model is one of
-theirs.
+Runs any GLiNER2 span export. The model-specific vocabularies ship in the same
+crate, behind default-on features:
+
+| feature | module | what it carries |
+|---|---|---|
+| `privacy` | [`privacy`](src/privacy.rs) | the 42 PII labels in their seven groups, redaction, the anonymisation gate |
+| `guardrails` | [`guardrails`](src/guardrails.rs) | the moderation label sets with the per-task thresholds the model expects |
+
+Both are on by default. They are tables of labels plus a few helpers — a few KB,
+no extra dependencies — and anyone using one of these checkpoints wants them.
+They were separate crates in 0.1; that produced five packages that were only
+ever installed together, so they are features now.
 
 ## Usage
 
 ```rust
-use gliner2_core::{InferenceParams, SchemaTask, SpanConfig, SpanEngine};
+use gliner2_rs::{InferenceParams, SchemaTask, SpanConfig, SpanEngine};
 
-gliner2_core::init("my-app");
+gliner2_rs::init("my-app");
 
 let mut engine = SpanEngine::new(
     SpanConfig::new("models/my-onnx-export").with_intra_threads(8),

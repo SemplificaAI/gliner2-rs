@@ -8,7 +8,7 @@
 //! Reports the median rather than the mean: a single scheduling hiccup skews a
 //! mean over a few dozen runs, and the median is what a caller actually feels.
 
-use gliner2_core::{SchemaTask, SpanConfig, SpanEngine};
+use gliner2_rs::{SchemaTask, SpanConfig, SpanEngine};
 use std::time::Instant;
 
 const TEXT: &str = "Il signor Mario Rossi vive a Roma e lavora per Jugaad s.r.l. dal 2020. \
@@ -22,7 +22,7 @@ fn main() -> anyhow::Result<()> {
     let dir = args.next().expect("usage: bench <models_dir> [runs]");
     let runs: usize = args.next().and_then(|s| s.parse().ok()).unwrap_or(50);
 
-    gliner2_core::init("bench");
+    gliner2_rs::init("bench");
 
     let t0 = Instant::now();
     let mut engine = SpanEngine::new(SpanConfig::new(&dir))?;

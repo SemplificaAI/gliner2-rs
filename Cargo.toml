@@ -1,11 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
-    # the engine: prompt construction, ort helpers, overlap policies, span
-    # inference. Self-contained, so it publishes under one name.
-    "crates/gliner2-core",
-    "crates/gliner2-guardrails",
-    "crates/gliner2-privacy",
+    # One crate, not five. The engine, the PII vocabulary and the guardrail
+    # schemas ship together because anyone using this model wants all of them;
+    # splitting them produced packages that were only ever installed as a set.
+    "crates/gliner2-rs",
     # the original engine: edition 2021, V1 pipeline, HuggingFace downloader
     "crates/gliner2-inference",
 ]

@@ -5,8 +5,8 @@
 //! cargo run --release --example extract -p gliner2-privacy -- models/pii-onnx
 //! ```
 
-use gliner2_core::{SpanConfig, SpanEngine};
-use gliner2_privacy::{Group, needs_anonymization, redact};
+use gliner2_rs::{SpanConfig, SpanEngine};
+use gliner2_rs::privacy::{Group, needs_anonymization, redact};
 use std::time::Instant;
 
 fn main() -> anyhow::Result<()> {
@@ -14,7 +14,7 @@ fn main() -> anyhow::Result<()> {
         .nth(1)
         .unwrap_or_else(|| "models/pii-onnx".to_string());
 
-    gliner2_core::init("gliner2-privacy-example");
+    gliner2_rs::init("gliner2-privacy-example");
 
     let t0 = Instant::now();
     let mut engine = SpanEngine::new(SpanConfig::new(&dir))?;
