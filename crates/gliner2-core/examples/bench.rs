@@ -33,15 +33,26 @@ fn main() -> anyhow::Result<()> {
         "date".into(), "event".into(),
     ])];
 
-    // warm-up: the first run pays for lazy allocator and kernel setup
-    let warm = engine.extract(TEXT, &tasks)?;
-    let entities = warm.entities.len();
+    // Warm-up. The first run pays for allocator growth, kernel module loading
+    // and cuDNN algorithm search; the boundary head needs several before it
+    // settles, so five rather than one. Use `--example warmup` to see the curve.
+    let mut entities = 0;
+    for _ in 0..5 {
+        entities = engine.extract(TEXT, &tasks)?.entities.len();
+    }
 
     let mut samples = Vec::with_capacity(runs);
     for _ in 0..runs {
         let t = Instant::now();
         let _ = engine.extract(TEXT, &tasks)?;
         samples.push(t.elapsed().as_secs_f64() * 1000.0);
+        // Yield between iterations. On a contended host a tight submit loop
+        // competes with everything else while the CUDA sync spins, and the
+        // measured latency inflates by two orders of magnitude - the same
+        // harness with a print in the loop reads 13 ms where this one read
+        // 1700 ms. Sleeping briefly is not cosmetic: without it the numbers
+        // are of the scheduler, not the engine.
+        std::thread::sleep(std::time::Duration::from_millis(2));
     }
     samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
 
