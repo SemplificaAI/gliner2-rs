@@ -84,11 +84,29 @@ found with `engine.classifier_layout()`.
 |---|---|---|
 | `_fp32` | FP32 | universal fallback, OpenVINO, CPU |
 | `_fp16` | FP32 (`keep_io_types=True`) | CoreML, which demands FP32 I/O |
-| `_fp16_iobinding` | FP16 | CUDA, ROCm, QNN with IOBinding |
+| `_fp16_iobinding` | FP16 | CUDA, ROCm, QNN — see the note below |
 
 Selected automatically per platform — `_fp16_iobinding` on Linux and Windows,
 `_fp16` on macOS — and overridable with
 `GLINER2_PRECISION=fp32|fp16|fp16_iobinding`.
+
+### A note on `_fp16_iobinding`
+
+The suffix names what the variant was *exported for*, not what this engine does
+with it. `keep_io_types=False` leaves the graph inputs and outputs in FP16 as
+well as the weights, which is what ORT's zero-copy `IoBinding` needs to keep
+tensors in device memory across the fragment chain.
+
+**This engine does not implement `IoBinding`.** It loads those graphs and runs
+them normally, so the variant still saves the FP32↔FP16 conversions at each
+boundary, but intermediate tensors round-trip through host memory between
+fragments. On CPU that costs nothing; on a discrete GPU it is the PCIe traffic
+the variant exists to avoid.
+
+If you need real zero-copy binding today, use
+[`gliner2-inference`](crates/gliner2-inference), which implements it in its V2
+pipeline. Implementing it in `gliner2-core` is tracked work, not a claim.
+
 
 ---
 
@@ -167,6 +185,10 @@ fallback. Tolerances are **relative**, scaled to each tensor's magnitude —
 ---
 
 ## 📊 Benchmark & Performance
+
+> These figures were measured with **`gliner2-inference`**, whose V2 pipeline
+> uses `IoBinding`. `gliner2-core` does not implement binding yet, so its GPU
+> numbers will differ; the CPU ones are comparable.
 
 Tested on complex text extraction tasks spanning up to 62 classes. Total Inference Time per Sentence is the primary metric used for fair cross-framework comparison, allowing precise cross-device and cross-language comparisons.
 
