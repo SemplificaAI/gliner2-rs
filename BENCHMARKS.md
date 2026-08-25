@@ -156,6 +156,27 @@ this document that the export itself is faithful, and it puts a floor under
 every other row — whatever deviation the FP16 variants show is quantisation,
 not a bug in the graphs.
 
+## Two hypotheses that turned out to be wrong
+
+Worth recording, so nobody spends the afternoon on them again.
+
+**The GPU is not falling back to CPU.** Profiling a fragment under the CUDA
+provider puts **97.1% of nodes on CUDA** and 2.9% on CPU. The graph is not being
+chopped into partitions with a device transfer between each.
+
+**The pipeline is not unusually large.** Node counts per extraction:
+
+| | encoder | rest | total |
+|---|---|---|---|
+| span (this repo) | 4588 | 1227 | 5815 |
+| boundary (gliner25-rs) | 4588 | 480 | 5068 |
+
+Both architectures share the same mDeBERTa encoder, and it dominates. Which
+makes one thing conspicuous: the span engine returns in ~26 ms on the 3090
+while the boundary engine on the same card takes hundreds of milliseconds for a
+*smaller* graph. That gap is unexplained, and settling it needs an idle host —
+see [`gliner25-rs/BENCHMARKS.md`](https://github.com/dariofinardi/gliner25-rs/blob/main/BENCHMARKS.md).
+
 ## Reproducing
 
 ```sh
