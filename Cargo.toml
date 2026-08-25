@@ -1,12 +1,8 @@
 [workspace]
 resolver = "3"
 members = [
-    # foundation. Shared with gliner25-rs, which lives in its own repository:
-    # the boundary architecture has different span conventions and no reason to
-    # ride this repository's release cadence. Once gliner-core is published,
-    # gliner25-rs depends on it from crates.io rather than copying it.
-    "crates/gliner-core",
-    # span architecture (GLiNER2) and its model-specific extensions
+    # the engine: prompt construction, ort helpers, overlap policies, span
+    # inference. Self-contained, so it publishes under one name.
     "crates/gliner2-core",
     "crates/gliner2-guardrails",
     "crates/gliner2-privacy",

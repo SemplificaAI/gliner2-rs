@@ -1,7 +1,7 @@
 [package]
 name = "gliner2-core"
 version = "0.1.0"
-description = "GLiNER2 span-architecture inference engine on ONNX Runtime"
+description = "GLiNER2 span-architecture inference engine on ONNX Runtime: prompt construction, span decoding, overlap policies"
 readme = "README.md"
 keywords = ["nlp", "ner", "onnx", "inference", "gliner"]
 categories = ["science", "text-processing"]
@@ -13,12 +13,18 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
-gliner-core = { version = "0.1.0", path = "../gliner-core" }
 ort.workspace = true
 ndarray.workspace = true
+tokenizers.workspace = true
 anyhow.workspace = true
 half.workspace = true
+regex.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
 serde.workspace = true
+
+[features]
+# Helpers that locate a tokenizer.json under the workspace, so downstream crates
+# can pin the prompt layout against the same ground truth.
+test-support = []

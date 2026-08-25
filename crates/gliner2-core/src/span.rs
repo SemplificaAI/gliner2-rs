@@ -31,10 +31,10 @@ use std::path::PathBuf;
 
 use ort::session::Session;
 
-use gliner_core::error::GlinerError;
-use gliner_core::overlap::{OverlapPolicy, Spanned, resolve_overlaps};
-use gliner_core::processor::{ProcessedRecord, SchemaTask, SchemaTransformer, TaskType};
-use gliner_core::runtime::{
+use crate::error::GlinerError;
+use crate::overlap::{OverlapPolicy, Spanned, resolve_overlaps};
+use crate::processor::{ProcessedRecord, SchemaTask, SchemaTransformer, TaskType};
+use crate::runtime::{
     IoDType, Precision, build_session, float_tensor, i64_tensor, resolve_fragment,
     resolve_tokenizer, sigmoid, softmax, take_float, take_i64,
 };
@@ -467,7 +467,7 @@ impl SpanEngine {
         &self,
         scores: &[f32],
         record: &ProcessedRecord,
-        task: &gliner_core::processor::TaskMapping,
+        task: &crate::processor::TaskMapping,
         m: usize,
         pred_count: usize,
         num_words: usize,

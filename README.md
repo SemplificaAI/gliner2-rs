@@ -25,8 +25,7 @@ silent off-by-one.
 
 | crate | what it is | docs |
 |---|---|---|
-| [`gliner-core`](crates/gliner-core) | prompt construction, ONNX Runtime helpers, overlap policies | [README](crates/gliner-core/README.md) |
-| [`gliner2-core`](crates/gliner2-core) | the span inference engine | [README](crates/gliner2-core/README.md) |
+| [`gliner2-core`](crates/gliner2-core) | the engine: prompt construction, ONNX Runtime helpers, overlap policies, span inference | [README](crates/gliner2-core/README.md) |
 | [`gliner2-guardrails`](crates/gliner2-guardrails) | LLM safety moderation schemas | [README](crates/gliner2-guardrails/README.md) |
 | [`gliner2-privacy`](crates/gliner2-privacy) | PII schemas and redaction | [README](crates/gliner2-privacy/README.md) |
 | [`gliner2-inference`](crates/gliner2-inference) | the original engine: V1 pipeline, HuggingFace downloader | [README](crates/gliner2-inference/README.md) |
