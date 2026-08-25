@@ -150,10 +150,17 @@ Each crate README has worked examples for its own vocabulary.
   Verified against ONNX Runtime 1.25.1 at API level 17, and against the
   `onnxruntime-gpu` 1.23.2 build for CUDA.
 
-  The requirement is a caret rather than an exact pin, so these crates can be
-  combined with anything else depending on `ort`. Be aware of what that means
-  while `ort` is still in release candidates: between rc.9 and rc.13, `commit()`
-  changed its return type, `Session::run` started taking `&mut self`,
+  **The rc.13 floor is not arbitrary.** Release candidates 10 through 12 were
+  tried and rejected: on **ARM CPU** some models hung during session
+  initialisation or inference, reproducibly enough that this project stayed on
+  rc.9 for months rather than move to them. rc.13 is the first candidate since
+  rc.9 that runs those models on ARM, which is why the migration skipped three
+  releases. Do not lower the floor.
+
+  Upwards, the requirement is a caret rather than an exact pin, so these crates
+  can be combined with anything else depending on `ort`. That is a calculated
+  risk while `ort` is still in release candidates: between rc.9 and rc.13,
+  `commit()` changed its return type, `Session::run` started taking `&mut self`,
   `try_extract_tensor` began returning a `Shape`, and `Outlet`'s fields went
   private. A later rc can break the build the same way. **Pin exactly in your
   own application** if you need that guarantee — a library should not impose it

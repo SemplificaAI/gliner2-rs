@@ -42,7 +42,13 @@
 ## [v0.5.1] - 2026-05-19
 ### ⚠️ Runtime Stability
 - **ORT version policy**: pin `ort` to `=2.0.0-rc.9`.
-- **Reason**: newer release candidates tested in this project (`rc.11` / `rc.12`) can hang during session initialization or inference.
+- **Reason**: release candidates 10 through 12 were tried and rejected. On **ARM
+  CPU** some models hung during session initialisation or inference, so the
+  project stayed on rc.9.
+- *Superseded:* rc.13 is the first candidate since rc.9 that runs those models on
+  ARM, which is why the later migration skipped three releases and went straight
+  to it. See the requirement in `Cargo.toml`, now a caret with rc.13 as its
+  floor.
 
 ### 🔒 Privacy / PII
 - Added `mask_pii_text()` utility to redact text from extracted PII spans.
