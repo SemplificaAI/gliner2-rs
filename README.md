@@ -26,16 +26,23 @@ silent off-by-one.
 | crate | what it is | docs |
 |---|---|---|
 | [`gliner2-rs`](crates/gliner2-rs) | the engine, plus the PII and guardrail vocabularies behind default-on features | [README](crates/gliner2-rs/README.md) |
-| [`gliner2-inference`](crates/gliner2-inference) | the original engine: V1 pipeline, HuggingFace downloader | [README](crates/gliner2-inference/README.md) |
+| `gliner2_inference` | the original engine: V1 pipeline, HuggingFace downloader. In-repo only, **not published** | [README](crates/gliner2-inference/README.md) |
 
 ```toml
 [dependencies]
 gliner2-rs = "0.6"
 ```
 
-`gliner2-inference` predates the split and stays as it is: edition 2021, its own
-V1 fallback and `from_pretrained`. Use it if you want models pulled from the Hub
-automatically. Use `gliner2-core` and the extensions for everything else.
+`gliner2-rs` never touches the network: it loads a model from a local directory
+and has no HTTP client, no TLS stack and no Hub client in its dependency tree.
+Fetch the ONNX export however you like — `hf download`, `git clone`, a build
+step — and hand it the path.
+
+`gliner2_inference` is the pre-split engine, kept in the repository for the
+V1 fallback and `from_pretrained`. It is **not published to crates.io**: depend
+on it by path or git if you want it. It is also the only thing here that pulls
+`hf-hub`, and through it `native-tls` and `openssl` — one more reason the
+published crate stays offline.
 
 0.1 split this into five crates — engine, two vocabularies, and the same again
 for GLiNER2.5. They were only ever installed as a set, so they are one crate and
@@ -51,12 +58,12 @@ Weights are **not** ours. GLiNER2 is developed by [Fastino](https://fastino.ai)
 Zaratiana et al. Converting a model changes neither its licence nor its
 ownership — see [`NOTICE`](NOTICE).
 
-| model | ONNX export | export layout | crate to use |
+| model | ONNX export | export layout | feature |
 |---|---|---|---|
-| [`fastino/gliner2-multi-v1`](https://huggingface.co/fastino/gliner2-multi-v1) | [`jugaadsrl/gliner2-multi-v1-onnx`](https://huggingface.co/jugaadsrl/gliner2-multi-v1-onnx) | legacy | `gliner2-core` |
-| [`fastino/gliner2-privacy-filter-PII-multi`](https://huggingface.co/fastino/gliner2-privacy-filter-PII-multi) | [`jugaadsrl/gliner2-privacy-filter-PII-multi-onnx`](https://huggingface.co/jugaadsrl/gliner2-privacy-filter-PII-multi-onnx) | legacy | `gliner2-privacy` |
-| [`fastino/GLiNER2-Guardrails-PII-Multi`](https://huggingface.co/fastino/GLiNER2-Guardrails-PII-Multi) | [`jugaadsrl/GLiNER2-Guardrails-PII-Multi-onnx`](https://huggingface.co/jugaadsrl/GLiNER2-Guardrails-PII-Multi-onnx) | flat | `gliner2-guardrails` |
-| `fastino/gliner2-base-v1` and local fine-tunes | export it yourself | flat | `gliner2-core` |
+| [`fastino/gliner2-multi-v1`](https://huggingface.co/fastino/gliner2-multi-v1) | [`jugaadsrl/gliner2-multi-v1-onnx`](https://huggingface.co/jugaadsrl/gliner2-multi-v1-onnx) | legacy | none — engine core |
+| [`fastino/gliner2-privacy-filter-PII-multi`](https://huggingface.co/fastino/gliner2-privacy-filter-PII-multi) | [`jugaadsrl/gliner2-privacy-filter-PII-multi-onnx`](https://huggingface.co/jugaadsrl/gliner2-privacy-filter-PII-multi-onnx) | legacy | `privacy` |
+| [`fastino/GLiNER2-Guardrails-PII-Multi`](https://huggingface.co/fastino/GLiNER2-Guardrails-PII-Multi) | [`jugaadsrl/GLiNER2-Guardrails-PII-Multi-onnx`](https://huggingface.co/jugaadsrl/GLiNER2-Guardrails-PII-Multi-onnx) | flat | `guardrails` |
+| `fastino/gliner2-base-v1` and local fine-tunes | export it yourself | flat | none — engine core |
 
 Any GLiNER2 **span** checkpoint works: the engine reads `max_width` and
 `MAX_COUNT` from the exported graphs rather than assuming them, so a checkpoint
@@ -109,7 +116,7 @@ the variant exists to avoid.
 
 If you need real zero-copy binding today, use
 [`gliner2-inference`](crates/gliner2-inference), which implements it in its V2
-pipeline. Implementing it in `gliner2-core` is tracked work, not a claim.
+pipeline. Implementing it in `gliner2-rs` is tracked work, not a claim.
 
 
 ---
@@ -118,7 +125,7 @@ pipeline. Implementing it in `gliner2-core` is tracked work, not a claim.
 
 ```sh
 ORT_DYLIB_PATH=/path/to/libonnxruntime.so \
-cargo run --release --example extract -p gliner2-privacy -- models/pii-onnx
+cargo run --release --example extract_pii -p gliner2-rs -- models/pii-onnx
 ```
 
 ```rust
@@ -222,7 +229,7 @@ changes when you move to a GPU, the answers do not.
 python onnx_conversion_scripts/compare_with_pytorch.py reference \
     --model_path fastino/<checkpoint> --cases tests/cases_pii.json --out /tmp/pytorch.json
 
-ORT_DYLIB_PATH=… cargo run --release --example dump_json -p gliner2-privacy -- \
+ORT_DYLIB_PATH=… cargo run --release --example dump_json -p gliner2-rs -- \
     models/pii-onnx tests/cases_pii.json > /tmp/rust.json
 
 python onnx_conversion_scripts/compare_with_pytorch.py diff \
@@ -240,7 +247,7 @@ fallback. Tolerances are **relative**, scaled to each tensor's magnitude —
 ## 📊 Benchmark & Performance
 
 > These figures were measured with **`gliner2-inference`**, whose V2 pipeline
-> uses `IoBinding`. `gliner2-core` does not implement binding yet, so its GPU
+> uses `IoBinding`. `gliner2-rs` does not implement binding yet, so its GPU
 > numbers will differ; the CPU ones are comparable.
 
 Tested on complex text extraction tasks spanning up to 62 classes. Total Inference Time per Sentence is the primary metric used for fair cross-framework comparison, allowing precise cross-device and cross-language comparisons.
