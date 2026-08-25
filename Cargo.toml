@@ -21,7 +21,18 @@ homepage = "https://edito-pdf.com"
 [workspace.dependencies]
 # One ort version for the whole workspace: mixing release candidates across
 # crates would link two incompatible ONNX Runtime bindings into one binary.
-ort = { version = "=2.0.0-rc.13", default-features = false, features = [
+#
+# Caret, not `=`. An exact pin is right for an application and wrong for a
+# published library: it would stop anyone combining these crates with another
+# that also depends on ort, and there is no way for them to resolve it. `^` here
+# means >=2.0.0-rc.13 and <3.0.0, later release candidates included.
+#
+# That carries real risk while ort is pre-1.0-of-2.x: rc.9 to rc.13 changed
+# `commit()`'s return type, made `Session::run` take `&mut self`, moved
+# `try_extract_tensor` to return a `Shape`, and made `Outlet`'s fields private.
+# A future rc can break the build the same way. Pin exactly in your own
+# application if you need the guarantee; a library should not impose it.
+ort = { version = "2.0.0-rc.13", default-features = false, features = [
     "std", "ndarray", "load-dynamic",
     "cuda", "rocm", "coreml", "openvino", "directml", "tensorrt", "xnnpack", "qnn", "half",
 ] }

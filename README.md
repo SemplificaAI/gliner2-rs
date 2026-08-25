@@ -143,10 +143,21 @@ Each crate README has worked examples for its own vocabulary.
 
 - Rust **edition 2024**, MSRV **1.88** for the new crates;
   `gliner2-inference` is edition 2021.
-- ONNX Runtime shared library, resolved at run time from `ORT_DYLIB_PATH`. The
-  workspace pins `ort = 2.0.0-rc.13` with `default-features = false`, so nothing
-  is downloaded at build time and no EP libraries are copied next to your
-  binary. Verified against ONNX Runtime 1.25.1 at API level 17.
+- `ort` **≥ 2.0.0-rc.13, < 3.0**, with `default-features = false` — nothing is
+  downloaded at build time and no execution-provider libraries are copied next
+  to your binary.
+- ONNX Runtime shared library, resolved at run time from `ORT_DYLIB_PATH`.
+  Verified against ONNX Runtime 1.25.1 at API level 17, and against the
+  `onnxruntime-gpu` 1.23.2 build for CUDA.
+
+  The requirement is a caret rather than an exact pin, so these crates can be
+  combined with anything else depending on `ort`. Be aware of what that means
+  while `ort` is still in release candidates: between rc.9 and rc.13, `commit()`
+  changed its return type, `Session::run` started taking `&mut self`,
+  `try_extract_tensor` began returning a `Shape`, and `Outlet`'s fields went
+  private. A later rc can break the build the same way. **Pin exactly in your
+  own application** if you need that guarantee — a library should not impose it
+  on its dependents.
 - Enable `ort`'s `download-binaries` feature instead if you would rather it
   fetch the runtime for you.
 
