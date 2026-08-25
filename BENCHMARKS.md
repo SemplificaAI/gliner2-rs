@@ -1,6 +1,10 @@
 # Benchmarks
 
-Measured 2026-08-25 with `cargo run --release --example bench`. Read the caveats
+Measured 2026-08-25 on a **shared development machine** — other users on some
+cores, a training job on the other GPU. The figures below are an indication of
+magnitude, not a clean measurement; see the caveats.
+
+Measured with `cargo run --release --example bench`. Read the caveats
 before quoting any of it.
 
 ## Hardware
@@ -13,9 +17,26 @@ before quoting any of it.
 | CUDA | 12.8, cuDNN 9 |
 | crate | `gliner2-core`, `ort` 2.0.0-rc.13, `load-dynamic` |
 
-Device 0, an RTX 4090, was running an unrelated multi-day training job and was
-deliberately left alone. `GLINER2_DEVICE=cuda:1` pins the benchmark to the idle
-card.
+Device 0, an RTX 4090, was carrying an unrelated multi-day training job and was
+deliberately left alone; `GLINER2_DEVICE=cuda:1` pins the benchmark to the 3090,
+which was idle. The host itself is shared, so the CPU cores were not exclusively
+available — which is why the CPU figures are the unreliable ones here, and the
+GPU figures the more usable.
+
+### About the card
+
+An RTX 3090 is a 2020 consumer part, not a datacenter accelerator, and it is the
+slower end of what you would deploy on. Its performance class sits close to an
+**NVIDIA L4**, which is what a good deal of cloud inference actually runs on
+today — GCP G2, AWS G6 and similar. The two are within the same range on FP32
+throughput; the 3090 has substantially more memory bandwidth, the L4 draws a
+fraction of the power.
+
+For this workload the distinction matters less than it looks. The span pipeline
+is bound by kernel launches and host round-trips across eight ONNX sessions, not
+by arithmetic or bandwidth, so a faster card moves these numbers less than
+implementing `IoBinding` would. Read the GPU figures as *what a realistic
+inference instance gives you*, not as a ceiling — and not as a best case either.
 
 ## Method
 
@@ -53,14 +74,17 @@ encoder from disk.
 
 ## Caveats, which are not small
 
-**The machine was contended throughout.** Load average held at 18 on 32 threads
-for the whole run — dozens of PyTorch dataloader workers from the training job
-on device 0. The CPU figures are therefore an upper bound on a busy machine, not
-a clean measurement: median 1679 ms against a minimum of 564 ms is a factor of
-three, and that spread is contention, not the engine. **Re-run on an idle
-machine before quoting CPU numbers anywhere.** GPU figures are much less
-affected — the card itself was idle — but their p95 still carries host-side
-scheduling noise.
+**This is a shared development machine, not a benchmark rig.** Other users had
+work on some of the cores, and the other GPU was carrying a training job for the
+whole run. Load average held at 18 on 32 threads. Treat every figure here as an
+**order-of-magnitude indication**, not a measurement.
+
+The contention is visible in the numbers themselves: median 1679 ms against a
+minimum of 564 ms is a factor of three on the same configuration, and that
+spread is other people's work, not the engine. The GPU card itself was idle, so those figures are the
+more usable of the two — but their p95 still carries host-side scheduling noise,
+since feeding the GPU is CPU work. **Re-run on a quiet machine before quoting
+any of this.**
 
 **One text, one schema.** Timings scale with sequence length and with the number
 of schema tasks, since each task costs a `schema_gather` plus a `count_lstm` and
@@ -101,6 +125,25 @@ with a host round-trip between each, so wall time is dominated by kernel launch
 and synchronisation rather than by matrix multiplication. Tensor Cores never
 become the bottleneck, so their advantage never appears, and only the conversion
 cost remains. Fixing that means implementing `IoBinding`, not changing precision.
+
+## Correctness across devices
+
+Speed is not the only thing that changes when you move to a GPU. The end-to-end
+suites were re-run on both devices and every precision against the same PyTorch
+reference:
+
+| crate | device | `fp32` | `fp16` | `fp16_iobinding` |
+|---|---|---|---|---|
+| guardrails | CPU | 61/61 (0.0001) | 61/61 (0.0034) | 61/61 (0.0035) |
+| guardrails | RTX 3090 | 61/61 (0.0001) | 61/61 (0.0036) | 61/61 (0.0035) |
+| privacy | CPU | — | 58/58 (0.0023) | 58/58 (0.0021) |
+| privacy | RTX 3090 | — | 58/58 (0.0022) | 58/58 (0.0021) |
+
+Identical spans everywhere; brackets give the largest score delta. The CUDA
+kernels agree with the CPU ones to within FP16 rounding — 0.0034 against 0.0036
+on the same case — so the device is a performance decision, not an accuracy one.
+The `fp32` privacy rows are absent because that export's `fp32_v2/` folder was
+not fetched locally, not because they failed.
 
 ## Reproducing
 

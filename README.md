@@ -171,10 +171,24 @@ prompt construction, word routing, span decoding and suppression all live in
 Rust, outside the graphs. The test that matters is the end-to-end comparison
 against the PyTorch reference.
 
-| suite | result |
-|---|---|
-| PII, 13 cases in 7 languages, legacy layout | **58/58** spans identical, max score delta 0.0021 |
-| Guardrails, 13 cases in 6 languages, flat layout | **61/61** spans identical, max score delta 0.0001 |
+Run on both devices and every precision, because a CUDA kernel producing
+different numbers from its CPU counterpart is exactly the kind of thing that
+goes unnoticed otherwise:
+
+| crate | device | `fp32` | `fp16` | `fp16_iobinding` |
+|---|---|---|---|---|
+| guardrails, 13 cases / 6 languages | CPU | 61/61 (0.0001) | 61/61 (0.0034) | 61/61 (0.0035) |
+| guardrails | RTX 3090 | 61/61 (0.0001) | 61/61 (0.0036) | 61/61 (0.0035) |
+| privacy, 13 cases / 7 languages | CPU | — | 58/58 (0.0023) | 58/58 (0.0021) |
+| privacy | RTX 3090 | — | 58/58 (0.0022) | 58/58 (0.0021) |
+
+Spans identical to the PyTorch reference in all ten configurations; the figure in
+brackets is the largest score delta. The `fp32` privacy rows are **absent, not
+failing** — that export's `fp32_v2/` folder was not fetched locally.
+
+The CUDA path agrees with the CPU one to within FP16 rounding: 0.0034 against
+0.0036 on the same case. Whatever else changes when you move to a GPU, the
+answers do not.
 
 ```sh
 python onnx_conversion_scripts/compare_with_pytorch.py reference \
