@@ -9,7 +9,7 @@ users and two capabilities the newer crates do not:
   slicing, for exports that predate the fused V2 graphs.
 
 Edition 2021, `ort = 2.0.0-rc.13`. For new work prefer
-[`gliner2-core`](../gliner2-core) and its extensions: same engine lineage, but
+[`gliner2-rs`](../gliner2-rs) and its extensions: same engine lineage, but
 they read both export layouts and detect the classifier signature.
 
 ## Usage

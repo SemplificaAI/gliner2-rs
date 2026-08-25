@@ -621,8 +621,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "gliner2-core"
-version = "0.1.0"
+name = "gliner2-rs"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "half",
@@ -632,26 +632,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokenizers 0.23.1",
-]
-
-[[package]]
-name = "gliner2-guardrails"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "gliner2-core",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "gliner2-privacy"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "gliner2-core",
- "serde",
- "serde_json",
 ]
 
 [[package]]

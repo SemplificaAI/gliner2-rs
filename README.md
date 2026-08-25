@@ -25,17 +25,22 @@ silent off-by-one.
 
 | crate | what it is | docs |
 |---|---|---|
-| [`gliner2-core`](crates/gliner2-core) | the engine: prompt construction, ONNX Runtime helpers, overlap policies, span inference | [README](crates/gliner2-core/README.md) |
-| [`gliner2-guardrails`](crates/gliner2-guardrails) | LLM safety moderation schemas | [README](crates/gliner2-guardrails/README.md) |
-| [`gliner2-privacy`](crates/gliner2-privacy) | PII schemas and redaction | [README](crates/gliner2-privacy/README.md) |
+| [`gliner2-rs`](crates/gliner2-rs) | the engine, plus the PII and guardrail vocabularies behind default-on features | [README](crates/gliner2-rs/README.md) |
 | [`gliner2-inference`](crates/gliner2-inference) | the original engine: V1 pipeline, HuggingFace downloader | [README](crates/gliner2-inference/README.md) |
+
+```toml
+[dependencies]
+gliner2-rs = "0.6"
+```
 
 `gliner2-inference` predates the split and stays as it is: edition 2021, its own
 V1 fallback and `from_pretrained`. Use it if you want models pulled from the Hub
 automatically. Use `gliner2-core` and the extensions for everything else.
 
-Start with the extension that matches your model — they carry the label
-vocabularies and helpers, and pull the engine in for you.
+0.1 split this into five crates — engine, two vocabularies, and the same again
+for GLiNER2.5. They were only ever installed as a set, so they are one crate and
+two features now. `--no-default-features` still drops either vocabulary if you
+want the engine bare.
 
 ---
 
@@ -117,9 +122,9 @@ cargo run --release --example extract -p gliner2-privacy -- models/pii-onnx
 ```
 
 ```rust
-use gliner2_core::{SchemaTask, SpanConfig, SpanEngine};
+use gliner2_rs::{SchemaTask, SpanConfig, SpanEngine};
 
-gliner2_core::init("my-app");
+gliner2_rs::init("my-app");
 let mut engine = SpanEngine::new(SpanConfig::new("models/my-onnx-export"))?;
 
 let tasks = vec![SchemaTask::Entities(vec![
@@ -303,7 +308,7 @@ refuses `boundary` checkpoints rather than producing a silently wrong export.
 The span architecture cannot be traced into a single ONNX graph — it loops over
 a variable number of schema tasks and a predicted, variable number of entity
 occurrences — so it is exported as eight fragments. See
-[`crates/gliner2-core/README.md`](crates/gliner2-core/README.md) for the chain.
+[`crates/gliner2-rs/README.md`](crates/gliner2-rs/README.md) for the chain.
 
 ---
 

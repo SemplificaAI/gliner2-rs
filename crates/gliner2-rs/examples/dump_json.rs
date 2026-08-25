@@ -6,7 +6,7 @@
 //! ORT_DYLIB_PATH=… cargo run --release --example dump_json -- <models_dir> <cases.json>
 //! ```
 
-use gliner2_core::{InferenceParams, SchemaTask, SpanConfig, SpanEngine};
+use gliner2_rs::{InferenceParams, SchemaTask, SpanConfig, SpanEngine};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -21,7 +21,7 @@ fn main() -> anyhow::Result<()> {
     let dir = args.next().expect("usage: dump_json <models_dir> <cases.json>");
     let cases_path = args.next().expect("usage: dump_json <models_dir> <cases.json>");
 
-    gliner2_core::init("dump_json");
+    gliner2_rs::init("dump_json");
     let mut engine = SpanEngine::new(SpanConfig::new(&dir))?;
 
     let cases: Vec<Case> = serde_json::from_slice(&std::fs::read(&cases_path)?)?;

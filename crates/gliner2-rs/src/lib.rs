@@ -42,6 +42,16 @@ pub mod processor;
 pub mod runtime;
 pub mod span;
 
+/// Moderation schemas for `GLiNER2-Guardrails-PII-Multi`: the label sets with
+/// the per-task thresholds and single/multi-label settings the model expects.
+#[cfg(feature = "guardrails")]
+pub mod guardrails;
+
+/// PII schemas and redaction: the 42 labels in their semantic groups, plus
+/// masking and the anonymisation gate.
+#[cfg(feature = "privacy")]
+pub mod privacy;
+
 pub use error::GlinerError;
 pub use overlap::{OverlapPolicy, Spanned, resolve_overlaps};
 pub use processor::{ProcessedRecord, SchemaTask, SchemaTransformer, TaskMapping, TaskType};

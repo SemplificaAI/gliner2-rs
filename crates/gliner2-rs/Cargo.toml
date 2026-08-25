@@ -1,0 +1,40 @@
+[package]
+name = "gliner2-rs"
+version = "0.6.0"
+description = "Native Rust inference for GLiNER2 on ONNX Runtime: entities, relations and classification, with PII and LLM-guardrail schemas"
+readme = "README.md"
+keywords = ["nlp", "ner", "onnx", "inference", "gliner"]
+categories = ["science", "text-processing"]
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+ort.workspace = true
+ndarray.workspace = true
+tokenizers.workspace = true
+anyhow.workspace = true
+half.workspace = true
+regex.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+serde.workspace = true
+
+[features]
+default = ["guardrails", "privacy"]
+
+# The model-specific vocabularies. On by default: anyone using one of these
+# checkpoints wants them, and they are tables of labels plus a few helpers - a
+# few KB, no extra dependencies. They are features rather than separate crates
+# because splitting them meant five packages that were always installed
+# together.
+guardrails = []
+privacy = []
+
+# Helpers that locate a tokenizer.json under the workspace, for pinning the
+# prompt layout against the same ground truth from outside the crate.
+test-support = []

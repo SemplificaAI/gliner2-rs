@@ -2,17 +2,16 @@
 
 //! PII schemas and redaction for GLiNER2 privacy filtering.
 //!
-//! Thin layer over [`gliner2_core`]: the engine is there, this crate carries the
-//! label vocabulary of
+//! The label vocabulary of
 //! [`fastino/gliner2-privacy-filter-PII-multi`](https://huggingface.co/fastino/gliner2-privacy-filter-PII-multi)
 //! and the redaction helpers a document pipeline needs.
 //!
 //! ```no_run
-//! use gliner2_privacy::{Group, redact};
-//! use gliner2_core::{SpanConfig, SpanEngine};
+//! use gliner2_rs::privacy::{Group, redact};
+//! use gliner2_rs::{SpanConfig, SpanEngine};
 //!
 //! # fn main() -> anyhow::Result<()> {
-//! gliner2_core::init("my-app");
+//! gliner2_rs::init("my-app");
 //! let mut engine = SpanEngine::new(SpanConfig::new("models/pii-onnx"))?;
 //!
 //! let text = "Contact Mario Rossi at mario.rossi@example.com.";
@@ -22,7 +21,7 @@
 //! # }
 //! ```
 
-use gliner2_core::{Entity, SchemaTask};
+use crate::{Entity, SchemaTask};
 
 /// The 42 labels the model was trained on, in the seven groups its card uses.
 ///
