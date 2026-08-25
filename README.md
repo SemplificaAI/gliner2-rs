@@ -25,8 +25,7 @@ silent off-by-one.
 
 | crate | what it is | docs |
 |---|---|---|
-| [`gliner-core`](crates/gliner-core) | prompt construction, ONNX Runtime helpers, overlap policies | [README](crates/gliner-core/README.md) |
-| [`gliner2-core`](crates/gliner2-core) | the span inference engine | [README](crates/gliner2-core/README.md) |
+| [`gliner2-core`](crates/gliner2-core) | the engine: prompt construction, ONNX Runtime helpers, overlap policies, span inference | [README](crates/gliner2-core/README.md) |
 | [`gliner2-guardrails`](crates/gliner2-guardrails) | LLM safety moderation schemas | [README](crates/gliner2-guardrails/README.md) |
 | [`gliner2-privacy`](crates/gliner2-privacy) | PII schemas and redaction | [README](crates/gliner2-privacy/README.md) |
 | [`gliner2-inference`](crates/gliner2-inference) | the original engine: V1 pipeline, HuggingFace downloader | [README](crates/gliner2-inference/README.md) |
@@ -144,10 +143,28 @@ Each crate README has worked examples for its own vocabulary.
 
 - Rust **edition 2024**, MSRV **1.88** for the new crates;
   `gliner2-inference` is edition 2021.
-- ONNX Runtime shared library, resolved at run time from `ORT_DYLIB_PATH`. The
-  workspace pins `ort = 2.0.0-rc.13` with `default-features = false`, so nothing
-  is downloaded at build time and no EP libraries are copied next to your
-  binary. Verified against ONNX Runtime 1.25.1 at API level 17.
+- `ort` **≥ 2.0.0-rc.13, < 3.0**, with `default-features = false` — nothing is
+  downloaded at build time and no execution-provider libraries are copied next
+  to your binary.
+- ONNX Runtime shared library, resolved at run time from `ORT_DYLIB_PATH`.
+  Verified against ONNX Runtime 1.25.1 at API level 17, and against the
+  `onnxruntime-gpu` 1.23.2 build for CUDA.
+
+  **The rc.13 floor is not arbitrary.** Release candidates 10 through 12 were
+  tried and rejected: on **ARM CPU** some models hung during session
+  initialisation or inference, reproducibly enough that this project stayed on
+  rc.9 for months rather than move to them. rc.13 is the first candidate since
+  rc.9 that runs those models on ARM, which is why the migration skipped three
+  releases. Do not lower the floor.
+
+  Upwards, the requirement is a caret rather than an exact pin, so these crates
+  can be combined with anything else depending on `ort`. That is a calculated
+  risk while `ort` is still in release candidates: between rc.9 and rc.13,
+  `commit()` changed its return type, `Session::run` started taking `&mut self`,
+  `try_extract_tensor` began returning a `Shape`, and `Outlet`'s fields went
+  private. A later rc can break the build the same way. **Pin exactly in your
+  own application** if you need that guarantee — a library should not impose it
+  on its dependents.
 - Enable `ort`'s `download-binaries` feature instead if you would rather it
   fetch the runtime for you.
 

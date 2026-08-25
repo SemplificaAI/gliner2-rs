@@ -92,4 +92,6 @@ after, as the reference does.
 shapes rather than hard-coded, so a checkpoint exported with different
 parameters stays usable.
 
+
+
 Apache-2.0. Copyright 2026 Dario Finardi. Published by Jugaad s.r.l.

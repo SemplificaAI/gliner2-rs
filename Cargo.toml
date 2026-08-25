@@ -1,12 +1,8 @@
 [workspace]
 resolver = "3"
 members = [
-    # foundation. Shared with gliner25-rs, which lives in its own repository:
-    # the boundary architecture has different span conventions and no reason to
-    # ride this repository's release cadence. Once gliner-core is published,
-    # gliner25-rs depends on it from crates.io rather than copying it.
-    "crates/gliner-core",
-    # span architecture (GLiNER2) and its model-specific extensions
+    # the engine: prompt construction, ort helpers, overlap policies, span
+    # inference. Self-contained, so it publishes under one name.
     "crates/gliner2-core",
     "crates/gliner2-guardrails",
     "crates/gliner2-privacy",
@@ -25,7 +21,25 @@ homepage = "https://edito-pdf.com"
 [workspace.dependencies]
 # One ort version for the whole workspace: mixing release candidates across
 # crates would link two incompatible ONNX Runtime bindings into one binary.
-ort = { version = "=2.0.0-rc.13", default-features = false, features = [
+#
+# Caret, not `=`. An exact pin is right for an application and wrong for a
+# published library: it would stop anyone combining these crates with another
+# that also depends on ort, and there is no way for them to resolve it. `^` here
+# means >=2.0.0-rc.13 and <3.0.0, later release candidates included.
+#
+# The floor is rc.13 for a concrete reason, not caution. Release candidates 10
+# through 12 were tried in this project and rejected: on ARM CPU some models
+# hung during session initialisation or inference, reproducibly enough that the
+# project stayed on rc.9 for months rather than move to them. rc.13 is the first
+# candidate since rc.9 that runs those models on ARM, which is why the migration
+# skipped three releases. Do not lower this floor.
+#
+# Upwards the caret is a calculated risk. Between rc.9 and rc.13, `commit()`
+# changed its return type, `Session::run` began taking `&mut self`,
+# `try_extract_tensor` started returning a `Shape`, and `Outlet`'s fields went
+# private. A future rc can break the build the same way. Pin exactly in your own
+# application if you need the guarantee; a library should not impose it.
+ort = { version = "2.0.0-rc.13", default-features = false, features = [
     "std", "ndarray", "load-dynamic",
     "cuda", "rocm", "coreml", "openvino", "directml", "tensorrt", "xnnpack", "qnn", "half",
 ] }
