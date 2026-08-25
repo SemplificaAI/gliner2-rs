@@ -151,9 +151,11 @@ these as ratios rather than absolutes:
 | `fp32` | 25.9 ms | **10.8 ms** | 2.4× |
 | `fp16_iobinding` | 28.1 ms | **11.3 ms** | 2.5× |
 
-On CPU the two are within noise of each other, and binding is marginally slower:
-there "device memory" is host memory, so the copy binding avoids does not exist,
-and only its bookkeeping remains. That is why `Auto` does not use it there.
+No CPU figures, deliberately: this machine sits at load average 17–19 and the
+same mode varied by more than 10× between consecutive runs, so any number
+quoted from it would be invented. What can be said is what the design implies —
+on CPU "device memory" *is* host memory, so binding saves no copy and only its
+bookkeeping remains. That is why `Auto` does not use it there.
 
 ### Falling back
 
