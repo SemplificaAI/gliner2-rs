@@ -34,6 +34,7 @@ use ort::session::Session;
 use crate::error::GlinerError;
 use crate::overlap::{OverlapPolicy, Spanned, resolve_overlaps};
 use crate::processor::{ProcessedRecord, SchemaTask, SchemaTransformer, TaskType};
+use crate::chunker::Chunker;
 use crate::chain::{Chain, ExecutionMode, Feed, Sink};
 use crate::runtime::{
     IoDType, Precision, build_session, float_tensor, i64_tensor, resolve_fragment,
@@ -158,6 +159,9 @@ pub struct SpanConfig {
     pub intra_threads: usize,
     /// How intermediate tensors travel between fragments.
     pub execution: ExecutionMode,
+    /// Set when the caller named a precision, so the engine does not override
+    /// it with the one the execution mode would prefer.
+    precision_pinned: bool,
     /// Where to fetch the export from if `models_dir` does not hold one.
     #[cfg(feature = "hub")]
     pub hub: Option<crate::hub::Model>,
@@ -172,6 +176,8 @@ impl SpanConfig {
             precision,
             intra_threads: 4,
             execution: ExecutionMode::from_env(),
+            // GLINER2_PRECISION is as explicit as calling with_precision.
+            precision_pinned: std::env::var("GLINER2_PRECISION").is_ok(),
             #[cfg(feature = "hub")]
             hub: None,
         }
@@ -197,8 +203,13 @@ impl SpanConfig {
         self
     }
 
+    /// Pins the export variant.
+    ///
+    /// Also stops the engine choosing one from the execution mode when it has
+    /// to download: an explicit choice is an instruction, not a hint.
     pub fn with_precision(mut self, precision: Precision) -> Self {
         self.precision = precision;
+        self.precision_pinned = true;
         self
     }
 
@@ -263,7 +274,15 @@ impl SpanEngine {
         #[cfg(feature = "hub")]
         if let Some(model) = config.hub {
             if resolve_fragment(&config.models_dir, "encoder", config.precision).is_none() {
-                config.models_dir = crate::hub::download(model, config.precision)?;
+                // Nothing on disk, so `autodetect` had no files to inspect and
+                // fell back to FP32. Let the transport pick instead: a bound
+                // chain wants the FP16 I/O graphs, the standard path does not.
+                if !config.precision_pinned {
+                    config.precision = config.execution.preferred_precision();
+                }
+                let (dir, got) = crate::hub::download(model, config.precision)?;
+                config.models_dir = dir;
+                config.precision = got;
             }
         }
 
@@ -344,11 +363,80 @@ impl SpanEngine {
         self.classifier_layout
     }
 
+    /// Extracts over a document longer than the encoder can attend to at once.
+    ///
+    /// mDeBERTa-v3 is trained to 512 positions and the schema markers share
+    /// that budget with the text, so past it quality degrades quietly — you get
+    /// an answer, with no signal that the tail was never really read. This
+    /// splits the text into overlapping word windows, runs each, shifts the
+    /// offsets back onto the original, and merges the duplicates.
+    ///
+    /// Text that fits in one window takes the single-call path, so this is safe
+    /// to use unconditionally.
+    ///
+    /// See [`chunker`](crate::chunker) for what merging can and cannot recover.
+    pub fn extract_long(&mut self, text: &str, tasks: &[SchemaTask]) -> Result<SpanOutput> {
+        self.extract_long_with(text, tasks, &InferenceParams::default(), Chunker::default())
+    }
+
+    /// [`extract_long`](Self::extract_long) with the window geometry spelled out.
+    pub fn extract_long_with(
+        &mut self,
+        text: &str,
+        tasks: &[SchemaTask],
+        params: &InferenceParams,
+        chunker: Chunker,
+    ) -> Result<SpanOutput> {
+        let chunks = chunker.split(text)?;
+        if chunks.len() <= 1 {
+            return self.extract_with(text, tasks, params);
+        }
+        let mut parts = Vec::with_capacity(chunks.len());
+        for chunk in &chunks {
+            let mut part = self.extract_with(chunk.slice(text), tasks, params)?;
+            crate::chunker::remap(&mut part, chunk, text);
+            parts.push(part);
+        }
+        Ok(crate::chunker::merge(parts))
+    }
+
     pub fn extract(&mut self, text: &str, tasks: &[SchemaTask]) -> Result<SpanOutput> {
         self.extract_with(text, tasks, &InferenceParams::default())
     }
 
+    /// Runs the chain, and on a device allocation failure runs it again on the
+    /// standard path.
+    ///
+    /// Binding holds every intermediate on the device at once, so it is the
+    /// first thing to give way on a long input — `span_rep` alone asks for
+    /// hundreds of megabytes once the word count climbs. Failing the call there
+    /// would be the wrong answer: the standard path releases each tensor as
+    /// soon as the next fragment has consumed it and will very often succeed on
+    /// exactly the input that broke binding. The engine stays on the standard
+    /// path afterwards rather than paying the same failure on every call.
     pub fn extract_with(
+        &mut self,
+        text: &str,
+        tasks: &[SchemaTask],
+        params: &InferenceParams,
+    ) -> Result<SpanOutput> {
+        match self.extract_once(text, tasks, params) {
+            Err(e)
+                if self.chain.mode() == ExecutionMode::IoBinding
+                    && matches!(
+                        e.downcast_ref::<GlinerError>(),
+                        Some(GlinerError::OomDeviceBinding(_) | GlinerError::BindingNotSupported(_))
+                    ) =>
+            {
+                eprintln!("[gliner2] {e}; continuing on the standard path");
+                self.chain.fall_back();
+                self.extract_once(text, tasks, params)
+            }
+            other => other,
+        }
+    }
+
+    fn extract_once(
         &mut self,
         text: &str,
         tasks: &[SchemaTask],

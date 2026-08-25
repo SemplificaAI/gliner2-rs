@@ -30,7 +30,7 @@ silent off-by-one.
 
 ```toml
 [dependencies]
-gliner2-rs = "0.8"
+gliner2-rs = "0.9"
 ```
 
 `gliner2-rs` loads a model from a local directory, and fetches it from the Hub
@@ -74,6 +74,19 @@ re-fetched, and the network is reached only on a miss. Files land in the shared
 Hub cache (`HF_HOME`, else `~/.cache/huggingface`), so a model already pulled by
 the Python library is not pulled again.
 
+**Only the variant you will run is fetched.** An export carries up to three
+copies of every fragment and the encoder alone is half a gigabyte, so the
+execution mode picks: a bound engine takes the FP16-I/O graphs, a standard one
+the FP32. Measured on the PII export with a cold cache:
+
+| `GLINER2_EXECUTION` | files | variant | downloaded |
+|---|---|---|---|
+| `standard` | 8 | `_fp32.onnx` | 1 245 MB |
+| `binding` | 8 | `_fp16_iobinding.onnx` | **632 MB** |
+
+`with_precision` pins the variant and overrides that choice. If the repository
+does not publish the preferred one the engine falls back rather than failing.
+
 | constant | repository |
 |---|---|
 | `hub::GLINER2_MULTI_V1` | [`jugaadsrl/gliner2-multi-v1-onnx`](https://huggingface.co/jugaadsrl/gliner2-multi-v1-onnx) |
@@ -108,6 +121,44 @@ resolves TLS through **`rustls`**. Its default feature set pulls `native-tls`
 and with it `openssl` — a C library and the CVE stream that comes with it — for
 no benefit here. Downloading weights over HTTPS does not need OpenSSL, so this
 crate does not carry it.
+
+---
+
+## Long documents
+
+`extract` sees one window. mDeBERTa-v3 is trained to 512 positions, and past
+that the span buffers grow with the word count until the device refuses them —
+on a 5 000-word document `span_rep` asks for 541 MB and the call fails, on
+either transport.
+
+```rust
+let out = engine.extract_long(&document, &tasks)?;   // 384-word windows, 64 overlap
+```
+
+Measured on that same 5 000-word document, `cuda:1`: `extract` fails,
+`extract_long` returns **211 entities in 1 953 ms**, every offset indexing the
+original text.
+
+Text that fits in one window takes the single-call path, so this is safe to use
+unconditionally. `extract_long_with(.., Chunker::new(256, 48)?)` sets the
+geometry.
+
+**Why the windows overlap.** A mention straddling a window edge is seen whole by
+neither. The overlap is its second chance: with 64 words of margin, anything
+shorter appears intact in at least one window. What no merge can recover is an
+entity longer than the overlap, or a relation whose ends fall in different
+windows — inherent to chunking, not to this implementation.
+
+Duplicates are collapsed by span keeping the highest score. Classifications are
+collapsed per label, also by highest score — for a guardrail that is exactly
+right, since a prompt injection buried on page nine is still an injection; for a
+descriptive label it is optimistic, so read a document-level classification as
+"somewhere in here", not "overall".
+
+**One caveat worth knowing.** A device OOM leaves the ORT arena in a state where
+later small calls can fail too. If `extract` has already failed on an oversized
+input, `extract_long` in the same process may fail for that reason and not
+because of chunking. Call `extract_long` directly rather than as a fallback.
 
 ---
 

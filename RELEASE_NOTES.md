@@ -1,3 +1,33 @@
+## [v0.9.0] - 2026-08-26
+### ✨ Features
+- **Long documents.** `extract_long` splits the text into overlapping word
+  windows, runs each, shifts the offsets back onto the original and merges the
+  duplicates — what `gliner2.inference.chunking` does on the Python side, same
+  384/64 defaults. On a 5 000-word document `extract` fails outright (`span_rep`
+  asks the device for 541 MB) while `extract_long` returns 211 entities in
+  1 953 ms with every offset correct.
+- **Only the variant you will run is downloaded.** The execution mode picks the
+  precision when the model has to be fetched, instead of `autodetect` falling
+  back to FP32 on an empty directory. Measured on the PII export with a cold
+  cache: 632 MB for `binding`, 1 245 MB for `standard`. `with_precision` still
+  pins it, and a repository that does not publish the preferred variant is
+  handled by falling back rather than failing.
+
+### 🐛 Fixes
+- **The device-OOM fallback never fired.** `Chain::fall_back` existed and was
+  called by nobody, and the classifier that was supposed to reach it matched
+  "out of memory" while ORT actually writes "Failed to allocate memory for
+  requested buffer of size N". Both fixed: an allocation failure now drops the
+  engine to the standard path and retries the call once, and says so.
+
+### 📚 Documentation
+- The crate README now covers the whole surface — every public type, all three
+  task kinds, `verdict`, the chunker, execution modes, the Hub, and both
+  vocabularies with working examples for `privacy` and `guardrails`.
+- A `readme_check` example compiles every sample in it, so a signature that
+  drifts breaks the build instead of misleading a reader. It caught three wrong
+  signatures on the first run.
+
 ## [v0.8.0] - 2026-08-25
 ### ✨ Features
 - **`IoBinding`, and one pipeline that does both.** The engine can now keep

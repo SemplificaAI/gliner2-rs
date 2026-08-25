@@ -46,6 +46,32 @@ pub enum ExecutionMode {
 }
 
 impl ExecutionMode {
+    /// Resolves `Auto` against the provider actually configured.
+    ///
+    /// Separate from [`Chain::new`] because the answer is needed *before* a
+    /// chain can be built: it decides which precision to fetch, and the chain
+    /// needs the precision to know its element type.
+    pub fn resolve(self) -> Self {
+        match self {
+            Self::Auto if crate::runtime::provider_has_device_memory() => Self::IoBinding,
+            Self::Auto => Self::Standard,
+            other => other,
+        }
+    }
+
+    /// The export variant this transport is meant to run.
+    ///
+    /// `_fp16_iobinding` leaves the graph boundaries in FP16, which is what a
+    /// bound chain needs to pass one fragment's output to the next untouched.
+    /// The standard path gains nothing from that and would pay a cast at every
+    /// boundary, so it asks for FP32.
+    pub fn preferred_precision(self) -> crate::runtime::Precision {
+        match self.resolve() {
+            Self::IoBinding => crate::runtime::Precision::Fp16IoBinding,
+            _ => crate::runtime::Precision::Fp32,
+        }
+    }
+
     /// Reads `GLINER2_EXECUTION=standard|binding|auto`.
     ///
     /// `GLINER2_NO_IOBINDING=1` is also honoured — it is what the older engine
@@ -135,11 +161,7 @@ impl Chain {
     /// keeps an explicit request honest rather than silently ignored.
     pub fn new(mode: ExecutionMode, dtype: IoDType) -> Result<Self> {
         let device_id = crate::runtime::device_id();
-        let wants_binding = match mode {
-            ExecutionMode::Standard => false,
-            ExecutionMode::IoBinding => true,
-            ExecutionMode::Auto => crate::runtime::provider_has_device_memory(),
-        };
+        let wants_binding = mode.resolve() == ExecutionMode::IoBinding;
 
         if !wants_binding {
             return Ok(Self { mode: ExecutionMode::Standard, dtype, device: None, host: None });
@@ -168,9 +190,13 @@ impl Chain {
         self.mode
     }
 
-    /// Permanently drops to the standard path. Called after a device OOM: one
-    /// slow run beats a failed one, and retrying the binding every call would
-    /// just pay the same allocation failure again.
+    /// Permanently drops to the standard path.
+    ///
+    /// Called after a device OOM: one slow run beats a failed one, and retrying
+    /// the binding on every call would just pay the same allocation failure
+    /// again. Binding holds every intermediate on the device at once, so it is
+    /// the first thing to give way on a long input — the standard path releases
+    /// each tensor as soon as the next fragment has consumed it.
     pub fn fall_back(&mut self) {
         self.mode = ExecutionMode::Standard;
         self.device = None;
@@ -364,7 +390,14 @@ fn clone_value(v: &DynValue, dtype: IoDType) -> Result<DynValue> {
 fn classify(err: impl std::fmt::Display, what: &str) -> anyhow::Error {
     let msg = err.to_string();
     let low = msg.to_lowercase();
-    if low.contains("out of memory") || low.contains("cudaerrormemoryallocation") {
+    // ORT reports an exhausted arena as "Failed to allocate memory for requested
+    // buffer of size N" and not as anything containing "out of memory", so
+    // matching the obvious phrase alone silently misses the case this exists
+    // for. All three spellings observed in the wild are listed.
+    if low.contains("out of memory")
+        || low.contains("failed to allocate memory")
+        || low.contains("cudaerrormemoryallocation")
+    {
         return GlinerError::OomDeviceBinding(format!("{what}: {msg}")).into();
     }
     if low.contains("not supported") || low.contains("invalid allocator") {

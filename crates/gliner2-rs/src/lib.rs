@@ -37,6 +37,7 @@
 //! places; the alternative was worse.
 
 pub mod chain;
+pub mod chunker;
 pub mod error;
 /// Fetching a published export from the Hub when it is not on disk.
 #[cfg(feature = "hub")]
