@@ -43,6 +43,11 @@ ort = { version = "2.0.0-rc.13", default-features = false, features = [
     "cuda", "rocm", "coreml", "openvino", "directml", "tensorrt", "xnnpack", "qnn", "half",
 ] }
 ndarray = "0.17"
+
+# Hub client for the `hub` feature. `default-features = false` with `ureq` alone
+# keeps TLS on `rustls`: hf-hub's default set pulls `native-tls` and with it
+# `openssl` — a C library and its CVE stream — for no gain here.
+hf-hub = { version = "0.5.0", default-features = false, features = ["ureq"] }
 tokenizers = "0.23"
 anyhow = "1.0"
 half = "2.4"
