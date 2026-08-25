@@ -19,12 +19,12 @@ pub enum GlinerError {
 impl fmt::Display for GlinerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::OomDeviceBinding(m) => write!(f, "[E_GLI_001] OOM_DEVICE_BINDING: {}", m),
-            Self::OomDeviceStandard(m) => write!(f, "[E_GLI_002] OOM_DEVICE_STANDARD: {}", m),
-            Self::OomHostRam(m) => write!(f, "[E_GLI_003] OOM_HOST_RAM: {}", m),
-            Self::BindingNotSupported(m) => write!(f, "[E_GLI_004] BINDING_NOT_SUPPORTED: {}", m),
-            Self::TensorShapeMismatch(m) => write!(f, "[E_GLI_005] TENSOR_SHAPE_MISMATCH: {}", m),
-            Self::Other(err) => write!(f, "{}", err),
+            Self::OomDeviceBinding(m) => write!(f, "[E_GLI_001] OOM_DEVICE_BINDING: {m}"),
+            Self::OomDeviceStandard(m) => write!(f, "[E_GLI_002] OOM_DEVICE_STANDARD: {m}"),
+            Self::OomHostRam(m) => write!(f, "[E_GLI_003] OOM_HOST_RAM: {m}"),
+            Self::BindingNotSupported(m) => write!(f, "[E_GLI_004] BINDING_NOT_SUPPORTED: {m}"),
+            Self::TensorShapeMismatch(m) => write!(f, "[E_GLI_005] TENSOR_SHAPE_MISMATCH: {m}"),
+            Self::Other(err) => write!(f, "{err}"),
         }
     }
 }

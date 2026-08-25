@@ -4,19 +4,20 @@ use std::env;
 
 fn build_engine() -> anyhow::Result<Gliner2Engine> {
     let repo_id = "jugaadsrl/gliner2-privacy-filter-PII-multi-onnx";
-    let subfolder = Some("fp16_v2");
+    // This export keeps its fragments in a precision subfolder.
+    const SUBFOLDER: &str = "fp16_v2";
     let model_type = ModelType::HuggingFace;
 
     if let Ok(models_dir) = env::var("PII_MODELS_DIR") {
-        println!("Using local exported ONNX fragments from: {}", models_dir);
+        println!("Using local exported ONNX fragments from: {models_dir}");
         Gliner2Engine::new(Gliner2Config {
             models_dir,
             max_width: 8,
             model_type,
         })
     } else {
-        println!("Downloading models from: {}/{}", repo_id, subfolder.unwrap_or(""));
-        Gliner2Engine::from_pretrained(repo_id, subfolder, model_type)
+        println!("Downloading models from: {repo_id}/{SUBFOLDER}");
+        Gliner2Engine::from_pretrained(repo_id, Some(SUBFOLDER), model_type)
     }
 }
 

@@ -1,3 +1,13 @@
+// The pre-split engine, kept for the V1 pipeline and its own `from_pretrained`.
+// Not published, and not developed further: `gliner2-rs` supersedes it, IoBinding
+// included since 0.8.
+//
+// Clippy's style lints are silenced here rather than acted on. There is no V1
+// export on this machine to verify a rewrite against, and a cosmetic change to
+// code that cannot be exercised is a worse trade than a lint. Remove the allows
+// if this crate is ever picked back up.
+#![allow(clippy::type_complexity, clippy::if_same_then_else, clippy::needless_range_loop)]
+
 // Copyright 2026 Dario Finardi. Published by Jugaad s.r.l.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -83,18 +93,15 @@ impl Default for Gliner2Config {
 
 /// GLiNER2 model type to handle different ONNX architectures.
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum ModelType {
     /// Converted PyTorch model (our server) - has last_hidden_state
+    #[default]
     PyTorch,
     /// HuggingFace model (public download) - different architecture
     HuggingFace,
 }
 
-impl Default for ModelType {
-    fn default() -> Self {
-        ModelType::PyTorch
-    }
-}
 
 impl std::fmt::Display for ModelType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -236,7 +243,7 @@ impl Gliner2EngineV1 {
             .with_user_agent("rust", "unknown")
             .with_user_agent(std::env::consts::OS, "unknown")
             .build()
-            .map_err(|e| anyhow::anyhow!("Failed to initialize HF API: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to initialize HF API: {e}"))?;
 
         let repo = api.model(repo_id.to_string());
 
@@ -252,27 +259,27 @@ impl Gliner2EngineV1 {
         ];
 
         if model_type == ModelType::PyTorch {
-            files_to_download.push(format!("count_lstm{}", suffix));
+            files_to_download.push(format!("count_lstm{suffix}"));
         } else {
-            files_to_download.push(format!("count_lstm{}", suffix));
+            files_to_download.push(format!("count_lstm{suffix}"));
         }
 
         let mut last_path = None;
         for file in &files_to_download {
             let repo_path = if let Some(sub) = subfolder {
-                format!("{}/{}", sub, file)
+                format!("{sub}/{file}")
             } else {
                 file.clone()
             };
 
-            println!("Downloading/verifying {}...", repo_path);
+            println!("Downloading/verifying {repo_path}...");
             match repo.get(&repo_path) {
                 Ok(p) => last_path = Some(p),
                 Err(e) => {
                     if file.starts_with("count_lstm") && model_type == ModelType::HuggingFace {
-                        println!("Note: {} not found, using fallback.", repo_path);
+                        println!("Note: {repo_path} not found, using fallback.");
                     } else {
-                        return Err(anyhow::anyhow!("Failed to download {}: {}", repo_path, e));
+                        return Err(anyhow::anyhow!("Failed to download {repo_path}: {e}"));
                     }
                 }
             }
@@ -301,15 +308,15 @@ impl Gliner2EngineV1 {
         let dir = Path::new(&config.models_dir);
         
         let load_session = |base_name: &str| -> Result<Session> {
-            let path_fp16 = dir.join(format!("{}_fp16.onnx", base_name));
-            let path_fp32 = dir.join(format!("{}_fp32.onnx", base_name));
+            let path_fp16 = dir.join(format!("{base_name}_fp16.onnx"));
+            let path_fp32 = dir.join(format!("{base_name}_fp32.onnx"));
             
             let path = if path_fp16.exists() {
                 path_fp16
             } else if path_fp32.exists() {
                 path_fp32
             } else {
-                return Err(anyhow::anyhow!("Neither {}_fp16.onnx nor {}_fp32.onnx exist", base_name, base_name));
+                return Err(anyhow::anyhow!("Neither {base_name}_fp16.onnx nor {base_name}_fp32.onnx exist"));
             };
 
             let mut builder = Session::builder()?
@@ -340,7 +347,7 @@ impl Gliner2EngineV1 {
             }
 
             builder.commit_from_file(&path)
-                .map_err(|e| anyhow::anyhow!("Error loading {:?}: {}", path, e))
+                .map_err(|e| anyhow::anyhow!("Error loading {path:?}: {e}"))
         };
 
         // Load models based on model type
@@ -366,7 +373,7 @@ impl Gliner2EngineV1 {
 
         let tokenizer_path = dir.join("tokenizer.json");
         let tokenizer = Tokenizer::from_file(&tokenizer_path)
-            .map_err(|e| anyhow::anyhow!("Error loading Tokenizer: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Error loading Tokenizer: {e}"))?;
 
         Ok(Self { 
             encoder: Mutex::new(encoder), 
@@ -393,10 +400,10 @@ impl Gliner2EngineV1 {
         
         match current_mode {
             ExecutionMode::IoBinding => {
-                match self.extract_iobinding(text, tasks, params.clone()) {
+                match self.extract_iobinding(text, tasks, params) {
                     Ok(res) => Ok(res),
                     Err(GlinerError::OomDeviceBinding(msg)) => {
-                        eprintln!("[GLiNER2] OOM in IoBinding detected. Falling back to Standard Mode. Details: {}", msg);
+                        eprintln!("[GLiNER2] OOM in IoBinding detected. Falling back to Standard Mode. Details: {msg}");
                         *self.execution_mode.write().unwrap_or_else(|p| p.into_inner()) = ExecutionMode::Standard;
                         self.extract_standard(text, tasks, params)
                     },
@@ -682,7 +689,7 @@ impl Gliner2EngineV1 {
                 }
             }
 
-            if pred_count <= 0 {
+            if pred_count == 0 {
                 continue; // No extraction needed for this task
             }
 

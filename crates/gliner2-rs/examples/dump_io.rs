@@ -7,7 +7,7 @@ fn main() -> anyhow::Result<()> {
     gliner2_rs::init("dump-io");
     let dir = Path::new(&dir);
     let p = Precision::autodetect(dir, "encoder");
-    println!("precision {:?}", p);
+    println!("precision {p:?}");
     for stem in [
         "encoder", "token_gather", "span_rep", "schema_gather",
         "count_pred_argmax", "count_lstm_fixed", "scorer", "classifier",

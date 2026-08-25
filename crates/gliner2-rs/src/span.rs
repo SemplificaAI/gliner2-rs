@@ -38,7 +38,7 @@ use crate::chunker::Chunker;
 use crate::chain::{Chain, ExecutionMode, Feed, Sink};
 use crate::runtime::{
     IoDType, Precision, build_session, float_tensor, i64_tensor, resolve_fragment,
-    resolve_tokenizer, sigmoid, softmax, take_float, take_i64,
+    resolve_tokenizer, sigmoid, softmax,
 };
 
 /// Inference parameters, adjustable on every call.

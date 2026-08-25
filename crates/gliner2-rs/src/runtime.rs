@@ -141,17 +141,14 @@ pub fn resolve_fragment(dir: &Path, stem: &str, precision: Precision) -> Option<
 /// Locates the tokenizer, which the legacy layout keeps inside each variant
 /// subfolder rather than at the root.
 pub fn resolve_tokenizer(dir: &Path, precision: Precision) -> Option<PathBuf> {
-    for candidate in [
+    [
         dir.join("tokenizer.json"),
         dir.join(precision.legacy_subdir()).join("tokenizer.json"),
         dir.join("fp32_v2").join("tokenizer.json"),
         dir.join("fp16_v2").join("tokenizer.json"),
-    ] {
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-    None
+    ]
+    .into_iter()
+    .find(|candidate| candidate.exists())
 }
 
 /// Which execution providers to register, from `GLINER2_DEVICE`.

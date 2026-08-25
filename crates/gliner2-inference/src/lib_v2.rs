@@ -120,7 +120,7 @@ impl Gliner2EngineV2 {
             .with_user_agent("rust", "unknown")
             .with_user_agent(std::env::consts::OS, "unknown")
             .build()
-            .map_err(|e| anyhow::anyhow!("Failed to initialize HF API: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to initialize HF API: {e}"))?;
 
         let repo = api.model(repo_id.to_string());
 
@@ -154,20 +154,20 @@ impl Gliner2EngineV2 {
         ];
         
         for base in bases.iter() {
-            files_to_download.push(format!("{}{}", base, suffix));
+            files_to_download.push(format!("{base}{suffix}"));
         }
 
         let mut models_dir = std::path::PathBuf::new();
 
         for file in files_to_download {
             let path_in_repo = match subfolder {
-                Some(sub) => format!("{}/{}", sub, file),
+                Some(sub) => format!("{sub}/{file}"),
                 None => file.clone(),
             };
 
-            println!("Downloading/verifying {}...", path_in_repo);
+            println!("Downloading/verifying {path_in_repo}...");
             let local_path = repo.get(&path_in_repo).map_err(|e| {
-                anyhow::anyhow!("Failed to download {}: {}", path_in_repo, e)
+                anyhow::anyhow!("Failed to download {path_in_repo}: {e}")
             })?;
 
             if models_dir.as_os_str().is_empty() {
@@ -198,15 +198,15 @@ impl Gliner2EngineV2 {
         let load = |base: &str| -> Result<Session> {
             // Priorità: iobinding FP16 > FP16 > FP32
             let candidates = [
-                dir.join(format!("{}_fp16_iobinding.onnx", base)),
-                dir.join(format!("{}_fp16.onnx", base)),
-                dir.join(format!("{}_fp32.onnx", base)),
+                dir.join(format!("{base}_fp16_iobinding.onnx")),
+                dir.join(format!("{base}_fp16.onnx")),
+                dir.join(format!("{base}_fp32.onnx")),
             ];
 
             let path = candidates.iter()
                 .find(|p| p.exists())
                 .ok_or_else(|| anyhow::anyhow!(
-                    "Nessun modello trovato per '{}' in {:?}", base, dir
+                    "Nessun modello trovato per '{base}' in {dir:?}"
                 ))?;
 
             let force_cpu = std::env::var("FORCE_CPU").is_ok();
@@ -248,7 +248,7 @@ impl Gliner2EngineV2 {
 
             println!("  Caricamento {:?}", path.file_name().unwrap_or_default());
             builder.commit_from_file(path)
-                .map_err(|e| anyhow::anyhow!("Errore caricamento {:?}: {}", path, e))
+                .map_err(|e| anyhow::anyhow!("Errore caricamento {path:?}: {e}"))
         };
 
         let encoder           = load("encoder")?;
@@ -261,7 +261,7 @@ impl Gliner2EngineV2 {
         let classifier        = load("classifier")?;
 
         let tokenizer = Tokenizer::from_file(dir.join("tokenizer.json"))
-            .map_err(|e| anyhow::anyhow!("Errore tokenizer: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Errore tokenizer: {e}"))?;
 
         Ok(Self {
             encoder: Mutex::new(encoder),
@@ -294,8 +294,7 @@ impl Gliner2EngineV2 {
                     Ok(res) => Ok(res),
                     Err(GlinerError::OomDeviceBinding(msg)) => {
                         eprintln!(
-                            "[GLiNER2-v2] OOM IOBinding, fallback Standard. Dettagli: {}",
-                            msg
+                            "[GLiNER2-v2] OOM IOBinding, fallback Standard. Dettagli: {msg}"
                         );
                         *self.execution_mode.write().unwrap_or_else(|p| p.into_inner()) = ExecutionMode::Standard;
                         self.extract_standard(text, tasks, params)
@@ -367,7 +366,7 @@ impl Gliner2EngineV2 {
         // ── Tokenizzazione ────────────────────────────────────────────────────
         let transformer = SchemaTransformer::new(self.tokenizer.clone());
         let record = transformer.transform(text, tasks)
-            .map_err(|e| GlinerError::Other(e))?;
+            .map_err(GlinerError::Other)?;
         let seq_len = record.input_ids.len();
 
         let num_words = record.word_to_token_maps.len();
@@ -384,7 +383,7 @@ impl Gliner2EngineV2 {
         let input_ids_t = oe!(Tensor::from_array(input_ids_arr), "encoder input_ids tensor");
         let attn_mask_t = oe!(Tensor::from_array(attn_mask_arr), "encoder attn_mask tensor");
 
-        let enc_out_name = g_encoder.outputs().get(0)
+        let enc_out_name = g_encoder.outputs().first()
             .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("encoder: nessun output registrato".into()))?;
 
@@ -397,7 +396,7 @@ impl Gliner2EngineV2 {
             let mut out = oe!(g_encoder.run_binding(&b_enc), "encoder run");
             out.remove(enc_out_name.as_str())
                 .ok_or_else(|| GlinerError::OomDeviceBinding(
-                    format!("encoder: output '{}' non trovato", enc_out_name)
+                    format!("encoder: output '{enc_out_name}' non trovato")
                 ))?
         };
 
@@ -409,7 +408,7 @@ impl Gliner2EngineV2 {
             "token_gather word_idx tensor"
         );
 
-        let tg_out_name = g_token_gather.outputs().get(0)
+        let tg_out_name = g_token_gather.outputs().first()
             .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("token_gather: nessun output".into()))?;
 
@@ -422,7 +421,7 @@ impl Gliner2EngineV2 {
             let mut out = oe!(g_token_gather.run_binding(&b_tg), "token_gather run");
             out.remove(tg_out_name.as_str())
                 .ok_or_else(|| GlinerError::OomDeviceBinding(
-                    format!("token_gather: output '{}' non trovato", tg_out_name)
+                    format!("token_gather: output '{tg_out_name}' non trovato")
                 ))?
         };
 
@@ -444,7 +443,7 @@ impl Gliner2EngineV2 {
             .map_err(|e| GlinerError::Other(anyhow::anyhow!(e)))?;
         let span_idx_t = oe!(Tensor::from_array(span_idx_arr), "span_rep span_idx tensor");
 
-        let sr_out_name = g_span_rep.outputs().get(0)
+        let sr_out_name = g_span_rep.outputs().first()
             .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("span_rep: nessun output".into()))?;
 
@@ -457,27 +456,27 @@ impl Gliner2EngineV2 {
             let mut out = oe!(g_span_rep.run_binding(&b_sr), "span_rep run");
             out.remove(sr_out_name.as_str())
                 .ok_or_else(|| GlinerError::OomDeviceBinding(
-                    format!("span_rep: output '{}' non trovato", sr_out_name)
+                    format!("span_rep: output '{sr_out_name}' non trovato")
                 ))?
         };
 
         // ── Nomi output sessioni per-task (raccolti una sola volta) ───────────
-        let sg_pc_name = g_schema_gather.outputs().get(0)
+        let sg_pc_name = g_schema_gather.outputs().first()
             .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("schema_gather: nessun output 0".into()))?;
         let sg_fe_name = g_schema_gather.outputs().get(1)
             .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("schema_gather: nessun output 1".into()))?;
-        let cp_out_name = g_count_pred_argmax.outputs().get(0)
+        let cp_out_name = g_count_pred_argmax.outputs().first()
             .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("count_pred_argmax: nessun output".into()))?;
-        let cl_out_name = g_count_lstm_fixed.outputs().get(0)
+        let cl_out_name = g_count_lstm_fixed.outputs().first()
             .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("count_lstm_fixed: nessun output".into()))?;
-        let sc_out_name = g_scorer.outputs().get(0)
+        let sc_out_name = g_scorer.outputs().first()
             .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("scorer: nessun output".into()))?;
-        let cls_out_name = g_classifier.outputs().get(0)
+        let cls_out_name = g_classifier.outputs().first()
             .map(|o| o.name().to_string())
             .ok_or_else(|| GlinerError::OomDeviceBinding("classifier: nessun output".into()))?;
 
@@ -513,11 +512,11 @@ impl Gliner2EngineV2 {
                 let mut out = oe!(g_schema_gather.run_binding(&b_sg), "schema_gather run");
                 let pc = out.remove(sg_pc_name.as_str())
                     .ok_or_else(|| GlinerError::OomDeviceBinding(
-                        format!("schema_gather: output '{}' non trovato", sg_pc_name)
+                        format!("schema_gather: output '{sg_pc_name}' non trovato")
                     ))?;
                 let fe = out.remove(sg_fe_name.as_str())
                     .ok_or_else(|| GlinerError::OomDeviceBinding(
-                        format!("schema_gather: output '{}' non trovato", sg_fe_name)
+                        format!("schema_gather: output '{sg_fe_name}' non trovato")
                     ))?;
                 (pc, fe)
             };
@@ -531,7 +530,7 @@ impl Gliner2EngineV2 {
                 let mut out = oe!(g_count_pred_argmax.run_binding(&b_cp), "count_pred_argmax run");
                 let val = out.remove(cp_out_name.as_str())
                     .ok_or_else(|| GlinerError::OomDeviceBinding(
-                        format!("count_pred_argmax: output '{}' non trovato", cp_out_name)
+                        format!("count_pred_argmax: output '{cp_out_name}' non trovato")
                     ))?;
                 oe!(
                     val.try_extract_array::<i64>().map_err(|e| anyhow::anyhow!(e)),
@@ -570,7 +569,7 @@ impl Gliner2EngineV2 {
                     let mut out = oe!(g_classifier.run_binding(&b_cls), "classifier run");
                     let val = out.remove(cls_out_name.as_str())
                         .ok_or_else(|| GlinerError::OomDeviceBinding(
-                            format!("classifier: output '{}' non trovato", cls_out_name)
+                            format!("classifier: output '{cls_out_name}' non trovato")
                         ))?;
                     if let Ok(t) = val.try_extract_array::<f32>() {
                         t.into_owned()
@@ -610,7 +609,7 @@ impl Gliner2EngineV2 {
                 let mut out = oe!(g_count_lstm_fixed.run_binding(&b_cl), "count_lstm_fixed run");
                 out.remove(cl_out_name.as_str())
                     .ok_or_else(|| GlinerError::OomDeviceBinding(
-                        format!("count_lstm_fixed: output '{}' non trovato", cl_out_name)
+                        format!("count_lstm_fixed: output '{cl_out_name}' non trovato")
                     ))?
             };
 
@@ -624,7 +623,7 @@ impl Gliner2EngineV2 {
                 let mut out = oe!(g_scorer.run_binding(&b_sc), "scorer run");
                 let val = out.remove(sc_out_name.as_str())
                     .ok_or_else(|| GlinerError::OomDeviceBinding(
-                        format!("scorer: output '{}' non trovato", sc_out_name)
+                        format!("scorer: output '{sc_out_name}' non trovato")
                     ))?;
                 if let Ok(t) = val.try_extract_array::<f32>() {
                     t.into_owned()

@@ -222,11 +222,9 @@ mod tests {
     fn every_word_is_covered() {
         let text = (0..97).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ");
         let chunks = Chunker::new(16, 4).unwrap().split(&text).unwrap();
-        let mut covered = vec![false; 97];
+        let mut covered = [false; 97];
         for c in &chunks {
-            for w in c.word_start..c.word_end {
-                covered[w] = true;
-            }
+            covered[c.word_start..c.word_end].fill(true);
         }
         assert!(covered.iter().all(|c| *c), "a window boundary dropped a word");
     }

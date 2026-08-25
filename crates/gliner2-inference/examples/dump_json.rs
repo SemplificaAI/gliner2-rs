@@ -33,7 +33,7 @@ fn main() -> anyhow::Result<()> {
     let mut out = Vec::new();
     for case in &cases {
         let tasks = vec![SchemaTask::Entities(case.entities.clone())];
-        let (entities, _, _) = engine.extract(&case.text, &tasks, Some(params.clone()))?;
+        let (entities, _, _) = engine.extract(&case.text, &tasks, Some(params))?;
         let mut rows: Vec<serde_json::Value> = entities
             .iter()
             .map(|e| {

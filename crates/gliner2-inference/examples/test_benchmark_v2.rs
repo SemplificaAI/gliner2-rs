@@ -5,7 +5,7 @@ fn main() -> anyhow::Result<()> {
     ort::init().with_name("GLiNER2_Bench_V2").commit();
 
     let force_cpu = env::var("FORCE_CPU").is_ok();
-    println!("GLiNER2 RUST NATIVE - Benchmark V2 IOBinding (Force CPU: {})", force_cpu);
+    println!("GLiNER2 RUST NATIVE - Benchmark V2 IOBinding (Force CPU: {force_cpu})");
 
     let engine = Gliner2Engine::from_pretrained(
         "jugaadsrl/gliner2-multi-v1-onnx",
@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
         let duration = start.elapsed();
         total_duration += duration;
         if i == 1 || i % 10 == 0 {
-            println!("  [Run {}/{}] completed in {:?}", i, num_runs, duration);
+            println!("  [Run {i}/{num_runs}] completed in {duration:?}");
         }
     }
 
@@ -58,9 +58,9 @@ fn main() -> anyhow::Result<()> {
     let time_per_sentence = avg_duration / num_sentences;
     let time_per_entity = if num_entities > 0 { avg_duration / num_entities } else { std::time::Duration::new(0, 0) };
 
-    println!("⏱️ Total Avg Time: {:?}", avg_duration);
-    println!("⏱️ Avg Time per Sentence: {:?}", time_per_sentence);
-    println!("⏱️ Avg Time per Entity ({} extracted): {:?}", num_entities, time_per_entity);
+    println!("⏱️ Total Avg Time: {avg_duration:?}");
+    println!("⏱️ Avg Time per Sentence: {time_per_sentence:?}");
+    println!("⏱️ Avg Time per Entity ({num_entities} extracted): {time_per_entity:?}");
 
     std::process::exit(0);
 }

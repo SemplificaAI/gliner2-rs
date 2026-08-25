@@ -238,7 +238,7 @@ impl SchemaTransformer {
             combined_to_final_map.insert(i, current_subword_idx);
             
             let encoding = self.tokenizer.encode(*token, false)
-                .map_err(|e| anyhow!("Tokenization failed for {}: {}", token, e))?;
+                .map_err(|e| anyhow!("Tokenization failed for {token}: {e}"))?;
                 
             let ids = encoding.get_ids();
             let start_sub = current_subword_idx;

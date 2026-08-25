@@ -291,7 +291,7 @@ impl Chain {
                 let v = out
                     .get(*name)
                     .ok_or_else(|| anyhow!("fragment produced no output named '{name}'"))?;
-                Ok(materialise(v, *sink, self.dtype)?)
+                materialise(v, *sink, self.dtype)
             })
             .collect()
     }

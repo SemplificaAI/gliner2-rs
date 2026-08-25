@@ -104,9 +104,8 @@ pub fn download(model: Model, precision: Precision) -> Result<(PathBuf, Precisio
             Ok(dir) => {
                 if *candidate != precision {
                     eprintln!(
-                        "[gliner2] {} does not publish {}{}; using {} instead",
+                        "[gliner2] {} does not publish encoder{}; using {} instead",
                         model.repo_id,
-                        "encoder",
                         precision.suffix(),
                         candidate.suffix(),
                     );
