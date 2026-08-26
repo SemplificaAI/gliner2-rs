@@ -733,7 +733,22 @@ impl SpanEngine {
 
         match params.overlap_policy {
             None => out.extend(greedy_nms(found, params.flat_ner)),
-            Some(policy) => out.extend(resolve_overlaps(&found, policy)),
+            // Python scopes `finalize_spans` per entity name — the resolver
+            // runs inside `for name in entity_order`, one label's spans at a
+            // time — so labels never interact under an explicit policy either
+            // (gliner2 2.0.0, inference/runtime.py). Resolving across the
+            // whole task at once would collapse the same stretch under two
+            // labels, which the reference deliberately keeps.
+            Some(policy) => {
+                let mut by_label: std::collections::BTreeMap<String, Vec<Entity>> =
+                    Default::default();
+                for e in found {
+                    by_label.entry(e.label.clone()).or_default().push(e);
+                }
+                for (_, group) in by_label {
+                    out.extend(resolve_overlaps(&group, policy));
+                }
+            }
         }
     }
 }
@@ -861,6 +876,47 @@ mod tests {
     fn span_idx_layout() {
         // 3 words, max_width 2: (0,0) (0,1) (1,1) (1,2) (2,2) invalid -> (0,0)
         assert_eq!(build_span_idx(3, 2), vec![0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 0, 0]);
+    }
+
+    #[test]
+    fn explicit_policy_is_scoped_per_label_like_python() {
+        // gliner2's runtime applies finalize_spans inside `for name in
+        // entity_order`, so the same stretch under two labels survives any
+        // policy — Flat included, which would collapse them if it ran across
+        // the task.
+        let e = |ws: usize, we: usize, label: &str, score: f32| Entity {
+            text: String::new(),
+            label: label.into(),
+            score,
+            char_start: 0,
+            char_end: 0,
+            word_start: ws,
+            word_end: we,
+            slot: 0,
+            task: "entities".into(),
+        };
+        let found = vec![
+            e(0, 1, "person", 0.9),
+            e(0, 1, "medical_professional", 0.8),
+            // and inside one label, Flat still resolves: the pair beats the whole
+            e(3, 6, "location", 0.6),
+            e(3, 4, "location", 0.5),
+            e(5, 6, "location", 0.5),
+        ];
+        let mut by_label: std::collections::BTreeMap<String, Vec<Entity>> = Default::default();
+        for x in found {
+            by_label.entry(x.label.clone()).or_default().push(x);
+        }
+        let mut out: Vec<Entity> = Vec::new();
+        for (_, group) in by_label {
+            out.extend(resolve_overlaps(&group, OverlapPolicy::Flat));
+        }
+        let labels: Vec<&str> = out.iter().map(|x| x.label.as_str()).collect();
+        assert!(labels.contains(&"person"));
+        assert!(labels.contains(&"medical_professional"));
+        // inclusive spans [3..=4] and [5..=6] are disjoint; half-open resolver
+        // sees [3,5) and [5,7): total 1.0 beats the whole span's 0.6
+        assert_eq!(out.iter().filter(|x| x.label == "location").count(), 2);
     }
 
     #[test]

@@ -1,3 +1,26 @@
+## [v0.9.3] - 2026-08-26
+### 🐛 Fixes — from a line-by-line comparison with gliner2's overlap.py
+- **An explicit `overlap_policy` is now scoped per label, as Python scopes it.**
+  gliner2's runtime applies `finalize_spans` inside `for name in entity_order` —
+  one label's spans at a time — so labels never interact under any policy. This
+  engine applied the resolver across the whole task, which collapsed the same
+  stretch under two labels (a doctor as both `person` and
+  `medical_professional`) whenever a policy was named. The default path (policy
+  `None`) was always per-label and is untouched. Pinned by test, `Flat`
+  included.
+- **`OverlapPolicy::parse` accepts `all`.** Python's alias table maps `all` to
+  `allow`; a boundary manifest using that spelling failed to load here.
+- The resolver's 1e-9 score quantisation (Python compares floats directly) is
+  now documented with the argument for why it cannot reorder distinct f32
+  probabilities at any practical threshold, rather than left as a silent
+  difference.
+
+### Verified
+- The Rust resolver against `inference/overlap.py` function by function:
+  aliases, ranking key, boundary dedup, all four policies, the interval-
+  scheduling DP with its three-level tie-break — line-equivalent apart from the
+  two items above.
+
 ## [v0.9.2] - 2026-08-26
 ### 🐛 Fixes — from a full re-audit of the crate
 - **Chunk merging now removes seam artefacts.** A mention cut by a window edge

@@ -26,7 +26,7 @@ pub enum OverlapPolicy {
 impl OverlapPolicy {
     pub fn parse(s: &str) -> Option<Self> {
         match s.trim().to_lowercase().replace('-', "_").as_str() {
-            "none" | "allow" => Some(Self::Allow),
+            "none" | "allow" | "all" => Some(Self::Allow),
             "nested" | "allow_nested" => Some(Self::Nested),
             "flat" | "disallow" | "no_overlap" | "non_overlapping" => Some(Self::Flat),
             "longest" | "keep_longest" => Some(Self::Longest),
@@ -44,9 +44,14 @@ pub trait Spanned {
 }
 
 /// Stable ordering key: descending score, then start, end, index.
+///
+/// Python compares the float directly; this quantises to 1e-9 to get an `Ord`
+/// key. The two can only disagree when two *distinct* scores fall in the same
+/// 1e-9 bucket — impossible for f32 probabilities at or above any practical
+/// threshold, whose spacing near 0.4 is ~3e-8, thirty times coarser than the
+/// bucket. Scores small enough to collide are filtered out before they reach
+/// the resolver.
 fn rank_key<T: Spanned>(index: usize, item: &T) -> (i64, usize, usize, usize) {
-    // scores must be ordered without `f32: Ord`; scaling to i64 preserves the
-    // ordering across the whole useful probability range
     let neg = -((item.score() as f64 * 1e9) as i64);
     (neg, item.start(), item.end(), index)
 }
