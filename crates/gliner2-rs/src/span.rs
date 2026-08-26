@@ -288,6 +288,28 @@ impl SpanEngine {
 
         let dir = &config.models_dir;
         let precision = config.precision;
+
+        // A GLiNER2.5 boundary export also carries an `encoder`, so without
+        // this check it fails several fragments in with "count_lstm_fixed not
+        // found" — true, and pointing at entirely the wrong problem. The
+        // manifest is the boundary architecture's signature; a span export
+        // never has one.
+        for probe in [
+            dir.join("boundary_manifest.json"),
+            dir.join("fp32_25").join("boundary_manifest.json"),
+            dir.join("fp16_25").join("boundary_manifest.json"),
+        ] {
+            if probe.exists() {
+                return Err(GlinerError::IncompleteModelDir(format!(
+                    "{} holds a GLiNER2.5 **boundary** export (boundary_manifest.json \
+                     is present). This engine runs the span architecture only — \
+                     use the gliner25-rs crate for this model.",
+                    dir.display()
+                ))
+                .into());
+            }
+        }
+
         // Both layouts are accepted: flat, as produced by export_span_v3.py, and
         // the legacy `fp32_v2/` + `fp16_v2/` subfolders the earlier exporter
         // published on the Hub.

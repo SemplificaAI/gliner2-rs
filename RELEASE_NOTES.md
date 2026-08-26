@@ -1,3 +1,19 @@
+## [v0.9.4] - 2026-08-26
+### 🛡️ Architecture gating
+- **A GLiNER2.5 boundary export is refused by name, at every entrance.** A
+  boundary export also carries an `encoder`, so this engine used to fail three
+  fragments in with "count_lstm_fixed not found" — true, and pointing at the
+  wrong problem. `boundary_manifest.json` is the boundary architecture's
+  signature: found locally or on the Hub, loading stops immediately with
+  "use the gliner25-rs crate for this model". The Hub check runs before any
+  fragment is downloaded, so no half-gigabyte encoder lands first.
+
+This crate runs every GLiNER2 **span** checkpoint — `gliner2-multi-v1`, the
+privacy filter, the guardrails model, local fine-tunes — with FP32/FP16
+variants and the standard/binding transports selected where available.
+`gliner25-rs` runs GLiNER2.5 boundary checkpoints only, and each crate now says
+so when handed the other's model.
+
 ## [v0.9.3] - 2026-08-26
 ### 🐛 Fixes — from a line-by-line comparison with gliner2's overlap.py
 - **An explicit `overlap_policy` is now scoped per label, as Python scopes it.**

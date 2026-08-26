@@ -135,6 +135,19 @@ fn download_exact(model: Model, precision: Precision) -> Result<PathBuf> {
         None => name.to_string(),
     };
 
+    // A boundary repository also publishes an `encoder`, so the failure would
+    // otherwise land fragments later with a message about precision or layout.
+    // The manifest names the actual problem in one probe.
+    if repo.get("boundary_manifest.json").is_ok() {
+        return Err(GlinerError::Hub(format!(
+            "{} is a GLiNER2.5 **boundary** export (it publishes \
+             boundary_manifest.json). This crate runs the span architecture \
+             only — use gliner25-rs for this model.",
+            model.repo_id
+        ))
+        .into());
+    }
+
     let mut last = None;
     for stem in FRAGMENTS {
         let file = at(&format!("{stem}{}.onnx", precision.suffix()));
