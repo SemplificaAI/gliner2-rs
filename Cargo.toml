@@ -6,7 +6,6 @@ members = [
     # splitting them produced packages that were only ever installed as a set.
     "crates/gliner2-rs",
     # the original engine: edition 2021, V1 pipeline, HuggingFace downloader
-    "crates/gliner2-inference",
 ]
 
 [workspace.package]

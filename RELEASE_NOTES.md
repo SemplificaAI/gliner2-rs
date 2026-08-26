@@ -1,3 +1,17 @@
+## [v0.9.5] - 2026-08-26
+### 🧹 Workspace
+- **`gliner2_inference` is removed.** Its one capability this crate lacked —
+  real `IoBinding` — shipped in 0.8.0; what remained was a V1 pipeline broken on
+  some exports and the workspace's only dependency on `openssl`. With it gone,
+  `openssl`, `native-tls`, `reqwest` and `h2` leave the lockfile entirely and
+  the dependency scanners lose their last source of advisories that never
+  reached users. The crate never touched crates.io; its history stays in git.
+- The two pre-workspace branches (`fix/prompt-layout-0.5.1`,
+  `fix/rc9-pii-anonymization`) are deleted: both fixes live on `main` in evolved
+  form, and the originals remain reachable through history.
+- A stale doc comment claimed the gliner2.5 export carries FP32 only; since
+  2026-08-26 it publishes all three variants.
+
 ## [v0.9.4] - 2026-08-26
 ### 🛡️ Architecture gating
 - **A GLiNER2.5 boundary export is refused by name, at every entrance.** A

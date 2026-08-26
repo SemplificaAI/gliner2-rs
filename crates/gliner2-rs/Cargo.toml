@@ -1,6 +1,6 @@
 [package]
 name = "gliner2-rs"
-version = "0.9.4"
+version = "0.9.5"
 description = "Native Rust inference for GLiNER2 on ONNX Runtime: entities, relations and classification, with PII and LLM-guardrail schemas"
 readme = "README.md"
 keywords = ["nlp", "ner", "onnx", "inference", "gliner"]

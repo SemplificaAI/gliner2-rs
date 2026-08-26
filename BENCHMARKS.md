@@ -133,7 +133,7 @@ are a small addition.
 ## Not measured
 
 - `fastino/gliner2-multi-v1`, the base checkpoint. Never fetched locally.
-- `gliner2-inference`, the legacy engine in this workspace. Its README quotes
+- `gliner2-inference`, the legacy engine (removed 2026-08-26; in git history). Its README quoted
   benchmarks from April, taken on different hardware with a different method;
   they are not comparable with anything here.
 - Long documents and wide schemas. Every figure comes from one ~90-word

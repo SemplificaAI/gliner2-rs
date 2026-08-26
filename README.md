@@ -26,7 +26,6 @@ silent off-by-one.
 | crate | what it is | docs |
 |---|---|---|
 | [`gliner2-rs`](crates/gliner2-rs) | the engine, plus the PII and guardrail vocabularies behind default-on features | [README](crates/gliner2-rs/README.md) |
-| `gliner2_inference` | the original engine: V1 pipeline, HuggingFace downloader. In-repo only, **not published** | [README](crates/gliner2-inference/README.md) |
 
 ```toml
 [dependencies]
@@ -38,11 +37,11 @@ if that directory is empty — see [Getting the weights](#getting-the-weights).
 Switch the `hub` feature off and the crate has no HTTP client, no TLS stack and
 no Hub client in its dependency tree at all.
 
-`gliner2_inference` is the pre-split engine, kept in the repository for the
-V1 fallback and its own `from_pretrained`. It is **not published to crates.io**:
-depend on it by path or git if you want it. It is also the only thing here that
-pulls `openssl`, through `hf-hub`'s default `native-tls`; the published crate
-takes `hf-hub` with `rustls` instead and has no OpenSSL anywhere.
+The pre-split engine, `gliner2_inference`, was removed on 2026-08-26: its one
+capability the new crate lacked — real `IoBinding` — shipped in 0.8.0, and what
+remained was a V1 pipeline broken on some exports and the workspace's only
+dependency on `openssl`. It never reached crates.io, and its history stays in
+git if the V1 pipeline is ever needed again.
 
 0.1 split this into five crates — engine, two vocabularies, and the same again
 for GLiNER2.5. They were only ever installed as a set, so they are one crate and
@@ -372,8 +371,7 @@ Each crate README has worked examples for its own vocabulary.
 
 ## Requirements
 
-- Rust **edition 2024**, MSRV **1.88** for the new crates;
-  `gliner2-inference` is edition 2021.
+- Rust **edition 2024**, MSRV **1.88**.
 - `ort` **≥ 2.0.0-rc.13, < 3.0**, with `default-features = false` — nothing is
   downloaded at build time and no execution-provider libraries are copied next
   to your binary.
@@ -500,7 +498,7 @@ fallback. Tolerances are **relative**, scaled to each tensor's magnitude —
 
 ## 📊 Benchmark & Performance
 
-> These figures were measured with **`gliner2-inference`**, whose V2 pipeline
+> These figures were measured with the removed legacy engine, whose V2 pipeline
 > uses `IoBinding`. `gliner2-rs` does not implement binding yet, so its GPU
 > numbers will differ; the CPU ones are comparable.
 
