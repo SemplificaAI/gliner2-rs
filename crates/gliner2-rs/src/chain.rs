@@ -283,7 +283,7 @@ impl Chain {
 
         let out = session
             .run(owned)
-            .map_err(|e| classify(e, "standard run"))?;
+            .map_err(|e| classify(e, "standard run", Path::Standard))?;
 
         outputs
             .iter()
@@ -307,7 +307,7 @@ impl Chain {
 
         let mut binding = session
             .create_binding()
-            .map_err(|e| classify(e, "create_binding"))?;
+            .map_err(|e| classify(e, "create_binding", Path::Bound))?;
 
         // Tensors rebuilt from host carriers must outlive the binding.
         let mut lifted: Vec<DynValue> = Vec::new();
@@ -324,7 +324,7 @@ impl Chain {
                     binding.bind_input(*name, lifted.last().expect("just pushed"))
                 }
             }
-            .map_err(|e| classify(e, &format!("bind input '{name}'")))?;
+            .map_err(|e| classify(e, &format!("bind input '{name}'"), Path::Bound))?;
         }
 
         for (name, sink) in outputs {
@@ -334,12 +334,12 @@ impl Chain {
             };
             binding
                 .bind_output_to_device(*name, mem)
-                .map_err(|e| classify(e, &format!("bind output '{name}'")))?;
+                .map_err(|e| classify(e, &format!("bind output '{name}'"), Path::Bound))?;
         }
 
         let mut out = session
             .run_binding(&binding)
-            .map_err(|e| classify(e, "run_binding"))?;
+            .map_err(|e| classify(e, "run_binding", Path::Bound))?;
 
         outputs
             .iter()
@@ -382,12 +382,23 @@ fn clone_value(v: &DynValue, dtype: IoDType) -> Result<DynValue> {
     float_tensor(dtype, shape, data)
 }
 
+/// Which transport produced the failure. It decides the error code: an OOM
+/// while bound is recoverable by falling back (`E_GLI_001`), an OOM on the
+/// standard path is the end of the line for this input (`E_GLI_002`), and
+/// labelling the second as the first produced the contradiction
+/// `OOM_DEVICE_BINDING: standard run` in real output.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Path {
+    Standard,
+    Bound,
+}
+
 /// Turns an ORT failure into something the engine can act on.
 ///
 /// A device allocation failure is recoverable — drop to the standard path — so
 /// it must be distinguishable from a genuine error. ORT reports it in the
 /// message rather than in a code, so the message is what we read.
-fn classify(err: impl std::fmt::Display, what: &str) -> anyhow::Error {
+fn classify(err: impl std::fmt::Display, what: &str, path: Path) -> anyhow::Error {
     let msg = err.to_string();
     let low = msg.to_lowercase();
     // ORT reports an exhausted arena as "Failed to allocate memory for requested
@@ -398,7 +409,11 @@ fn classify(err: impl std::fmt::Display, what: &str) -> anyhow::Error {
         || low.contains("failed to allocate memory")
         || low.contains("cudaerrormemoryallocation")
     {
-        return GlinerError::OomDeviceBinding(format!("{what}: {msg}")).into();
+        return match path {
+            Path::Bound => GlinerError::OomDeviceBinding(format!("{what}: {msg}")),
+            Path::Standard => GlinerError::OomDeviceStandard(format!("{what}: {msg}")),
+        }
+        .into();
     }
     if low.contains("not supported") || low.contains("invalid allocator") {
         return GlinerError::BindingNotSupported(format!("{what}: {msg}")).into();

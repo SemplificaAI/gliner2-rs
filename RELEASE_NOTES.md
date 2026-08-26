@@ -1,3 +1,31 @@
+## [v0.9.2] - 2026-08-26
+### 🐛 Fixes — from a full re-audit of the crate
+- **Chunk merging now removes seam artefacts.** A mention cut by a window edge
+  produced a truncated copy from one window and the whole mention from its
+  neighbour, and both survived merging because their ranges differ. Within each
+  `(task, label)` overlapping spans are now resolved greedily by score — the
+  same rule single-window decoding applies, and what `gliner2`'s
+  `merge_chunk_results` does at merge. Labels still never interact. Measured on
+  the 5 000-word test document: 211 → 210 entities, the removed one a genuine
+  seam truncation.
+- **A standard-path OOM is `E_GLI_002` now.** `classify` labelled every
+  allocation failure `OOM_DEVICE_BINDING`, producing the contradiction
+  `OOM_DEVICE_BINDING: standard run` in real output. The transport that failed
+  now decides the code.
+- **`redact_with` cannot panic on malformed offsets.** `replace_range` panics
+  on a byte offset inside a UTF-8 sequence, and entities do not have to come
+  from this engine. A malformed span is dropped instead of taking down a
+  redaction pipeline.
+- **A flat-layout repository without `tokenizer.json` fails at download.** The
+  error was silently swallowed and resurfaced at session load, naming a cache
+  path the user never chose instead of the repository that is missing the file.
+
+### 📚 Documentation
+- The crate front page still said schemas live in the removed extension crates
+  and pointed GLiNER2.5 users at `gliner25-core`; both corrected. `Chunker` and
+  `ExecutionMode` are re-exported at the root. A doc comment in `span.rs` had
+  attached itself to the wrong method.
+
 ## [v0.9.1] - 2026-08-26
 ### 📚 Diagnostics
 - **The OOM error now says what to do.** Past a few thousand words a single

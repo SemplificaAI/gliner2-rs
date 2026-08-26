@@ -4,10 +4,10 @@
 //!
 //! Runs any GLiNER2 span export — `gliner2-multi-v1`, `gliner2-base-v1`,
 //! `gliner2-privacy-filter-PII-multi`, `GLiNER2-Guardrails-PII-Multi`, or a
-//! local fine-tune. Model-specific schemas and helpers live in the extension
-//! crates on top: `gliner2-guardrails` and `gliner2-privacy`.
+//! local fine-tune. Model-specific schemas and helpers live in the [`privacy`]
+//! and [`guardrails`] modules, behind default-on features of the same names.
 //!
-//! For GLiNER2.5 checkpoints use `gliner25-core`: the boundary architecture
+//! For GLiNER2.5 checkpoints use `gliner25-rs`: the boundary architecture
 //! shares nothing with this one beyond the encoder and the prompt format, and
 //! its spans are half-open rather than inclusive.
 //!
@@ -61,6 +61,8 @@ pub use error::GlinerError;
 pub use overlap::{OverlapPolicy, Spanned, resolve_overlaps};
 pub use processor::{ProcessedRecord, SchemaTask, SchemaTransformer, TaskMapping, TaskType};
 pub use runtime::Precision;
+pub use chain::ExecutionMode;
+pub use chunker::Chunker;
 pub use span::{
     Classification, ClassifierLayout, Entity, InferenceParams, SpanConfig, SpanEngine, SpanOutput,
 };

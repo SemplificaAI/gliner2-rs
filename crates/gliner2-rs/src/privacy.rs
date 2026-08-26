@@ -140,10 +140,21 @@ pub fn redact_with<F>(text: &str, entities: &[Entity], placeholder: F) -> String
 where
     F: Fn(&str) -> String,
 {
-    // 1. keep a non-overlapping set, best score first
+    // 1. keep a non-overlapping set, best score first.
+    //
+    // The boundary guard matters: `replace_range` panics on a byte offset that
+    // is not a UTF-8 character boundary, and entities do not have to come from
+    // this engine — a caller merging offsets from elsewhere can hand in a
+    // malformed one. Dropping it turns a would-be panic in the middle of a
+    // redaction pipeline into a span that is simply not rewritten.
     let mut ranked: Vec<&Entity> = entities
         .iter()
-        .filter(|e| e.char_start < e.char_end && e.char_end <= text.len())
+        .filter(|e| {
+            e.char_start < e.char_end
+                && e.char_end <= text.len()
+                && text.is_char_boundary(e.char_start)
+                && text.is_char_boundary(e.char_end)
+        })
         .collect();
     ranked.sort_by(|a, b| {
         b.score
@@ -243,6 +254,19 @@ mod tests {
             redact(text, &[first, last, full]),
             "Il paziente [FULL_NAME]."
         );
+    }
+
+    #[test]
+    fn malformed_offsets_do_not_panic() {
+        // "è" is two bytes; offset 9 falls inside it. replace_range would
+        // panic — the guard drops the span instead.
+        let text = "Il caffè di Mario.";
+        assert!(!text.is_char_boundary(8));
+        let out = redact(text, &[entity("person", 7, 8)]);
+        assert_eq!(out, text, "a malformed span is skipped, not applied");
+        // a well-formed span beside it still works ("Mario" = bytes 13..18)
+        let out = redact(text, &[entity("person", 13, 18)]);
+        assert_eq!(out, "Il caffè di [PERSON].");
     }
 
     #[test]

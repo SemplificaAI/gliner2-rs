@@ -352,13 +352,13 @@ impl SpanEngine {
     pub fn hidden_size(&self) -> usize {
         self.hidden
     }
-    /// Which classifier signature the loaded export carries.
     /// The transport actually in force, after `Auto` was resolved — and after
     /// any fallback a device OOM forced.
     pub fn execution(&self) -> ExecutionMode {
         self.chain.mode()
     }
 
+    /// Which classifier signature the loaded export carries.
     pub fn classifier_layout(&self) -> ClassifierLayout {
         self.classifier_layout
     }

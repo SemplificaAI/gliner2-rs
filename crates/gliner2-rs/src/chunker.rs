@@ -159,9 +159,20 @@ pub fn remap(output: &mut SpanOutput, chunk: &Chunk, text: &str) {
 
 /// Collapses what overlapping windows saw twice.
 ///
-/// Entitys are keyed by span and field, classifications by task and label;
-/// the highest score wins in both cases. Order is by score descending, so the
-/// result reads the way a single-call result does.
+/// Two passes. Identical spans are keyed by `(range, task, label)` and the
+/// highest score wins. Then, within each `(task, label)`, *overlapping* spans
+/// are resolved greedily by score — the seam case, where one window saw
+/// `Mario` at its edge and the neighbouring window saw `Mario Rossi` whole,
+/// and both survived the first pass because their ranges differ. A single
+/// window never produces such a pair (the engine's own NMS removed it), so
+/// this pass only ever removes seam artefacts. `gliner2`'s
+/// `merge_chunk_results` resolves overlaps at merge for the same reason.
+///
+/// Labels never interact, exactly as in single-window decoding: the same
+/// stretch under two labels is information, not a duplicate.
+///
+/// Classifications are collapsed per `(task, label)` by highest score. Order is
+/// by score descending, so the result reads the way a single-call result does.
 pub fn merge(parts: Vec<SpanOutput>) -> SpanOutput {
     let mut entities: HashMap<(usize, usize, String, String), Entity> = HashMap::new();
     let mut classes: HashMap<(String, String), crate::span::Classification> = HashMap::new();
@@ -187,7 +198,28 @@ pub fn merge(parts: Vec<SpanOutput>) -> SpanOutput {
         }
     }
 
+    // Seam pass: greedy by score within each (task, label), spans inclusive.
     let mut entities: Vec<Entity> = entities.into_values().collect();
+    entities.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.word_start.cmp(&b.word_start))
+            .then(a.word_end.cmp(&b.word_end))
+    });
+    let mut kept: Vec<Entity> = Vec::new();
+    for cand in entities {
+        let clashes = kept.iter().any(|k| {
+            k.task == cand.task
+                && k.label == cand.label
+                && cand.word_start <= k.word_end
+                && k.word_start <= cand.word_end
+        });
+        if !clashes {
+            kept.push(cand);
+        }
+    }
+    let mut entities = kept;
     entities.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
@@ -239,6 +271,68 @@ mod tests {
     #[test]
     fn empty_text_still_yields_a_window() {
         assert_eq!(Chunker::default().split("").unwrap().len(), 1);
+    }
+
+    fn ent(label: &str, cs: usize, ce: usize, ws: usize, we: usize, score: f32) -> Entity {
+        Entity {
+            text: String::new(),
+            label: label.into(),
+            score,
+            char_start: cs,
+            char_end: ce,
+            word_start: ws,
+            word_end: we,
+            slot: 0,
+            task: "entities".into(),
+        }
+    }
+
+    #[test]
+    fn merge_collapses_seam_truncations_within_a_label() {
+        // window A saw "Mario" at its edge (word 5, inclusive range 5..=5);
+        // window B saw "Mario Rossi" whole (words 5..=6). Different ranges, so
+        // key dedup keeps both — the seam pass must drop the truncation.
+        let a = SpanOutput {
+            entities: vec![ent("person", 30, 35, 5, 5, 0.71)],
+            classifications: vec![],
+        };
+        let b = SpanOutput {
+            entities: vec![ent("person", 30, 41, 5, 6, 0.97)],
+            classifications: vec![],
+        };
+        let merged = merge(vec![a, b]);
+        assert_eq!(merged.entities.len(), 1);
+        assert_eq!(merged.entities[0].word_end, 6, "the whole mention wins");
+    }
+
+    #[test]
+    fn merge_keeps_the_same_stretch_under_two_labels() {
+        // labels never interact: a doctor is both medical_professional and
+        // person, in one window or across two.
+        let a = SpanOutput {
+            entities: vec![ent("person", 30, 41, 5, 6, 0.91)],
+            classifications: vec![],
+        };
+        let b = SpanOutput {
+            entities: vec![ent("medical_professional", 30, 41, 5, 6, 0.95)],
+            classifications: vec![],
+        };
+        assert_eq!(merge(vec![a, b]).entities.len(), 2);
+    }
+
+    #[test]
+    fn merge_keeps_distinct_occurrences_of_one_label() {
+        // two genuinely different mentions of the same label do not overlap
+        // and must both survive.
+        let a = SpanOutput {
+            entities: vec![ent("person", 0, 5, 0, 0, 0.9)],
+            classifications: vec![],
+        };
+        let b = SpanOutput {
+            entities: vec![ent("person", 50, 55, 9, 9, 0.9)],
+            classifications: vec![],
+        };
+        assert_eq!(merge(vec![a, b]).entities.len(), 2);
     }
 
     #[test]

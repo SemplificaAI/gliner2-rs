@@ -155,12 +155,19 @@ fn download_exact(model: Model, precision: Precision) -> Result<PathBuf> {
     }
 
     // The tokenizer sits beside the fragments in some exports and at the root in
-    // others, so accept either.
+    // others, so accept either — but a repository with neither must fail HERE,
+    // where the message can still name the repository. Swallowing it defers the
+    // failure to session load, which reports a local path the user never chose.
     let tok = at("tokenizer.json");
-    if repo.get(&tok).is_err() && subfolder.is_some() {
-        repo.get("tokenizer.json").map_err(|e| {
-            GlinerError::Hub(format!("{}: could not fetch tokenizer.json ({e})", model.repo_id))
-        })?;
+    if let Err(primary) = repo.get(&tok) {
+        let root_fallback = subfolder.is_some() && repo.get("tokenizer.json").is_ok();
+        if !root_fallback {
+            return Err(GlinerError::Hub(format!(
+                "{}: could not fetch tokenizer.json ({primary})",
+                model.repo_id
+            ))
+            .into());
+        }
     }
 
     let leaf = last
