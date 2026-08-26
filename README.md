@@ -298,6 +298,50 @@ conversions at each boundary, so it is not wasted either way.
 
 ## Quick start
 
+### In your own project
+
+No clone, no model on disk — the crate fetches the export on first run:
+
+```toml
+[dependencies]
+gliner2-rs = "0.9"
+```
+
+```rust
+use gliner2_rs::privacy::{Group, needs_anonymization, redact};
+use gliner2_rs::{SpanConfig, SpanEngine, hub};
+
+fn main() -> anyhow::Result<()> {
+    gliner2_rs::init("pii-audit");
+
+    let mut engine = SpanEngine::new(SpanConfig::from_hub(hub::PRIVACY_PII_MULTI))?;
+
+    let text = "Il paziente Giuseppe Verdi, contattabile a g.verdi@example.it.";
+    let tasks = [Group::Person, Group::Contact].map(Group::task);
+    let out = engine.extract(text, &tasks)?;
+
+    for e in &out.entities {
+        println!("{:?}  {}  {:.1}%", e.text, e.label, e.score * 100.0);
+    }
+    if needs_anonymization(&out.entities, 0.5) {
+        println!("{}", redact(text, &out.entities));
+    }
+    Ok(())
+}
+```
+
+```sh
+ORT_DYLIB_PATH=/path/to/libonnxruntime.so cargo run --release
+```
+
+Verified end to end: on a CUDA device this resolves to the bound transport,
+downloads the 632 MB FP16-I/O variant rather than the full 1.2 GB export, and
+answers warm calls in ~19 ms on an RTX 3090. Prefer a model you already have on
+disk? `SpanConfig::new("models/pii-onnx")` instead, and nothing touches the
+network.
+
+### From a clone of this repository
+
 ```sh
 ORT_DYLIB_PATH=/path/to/libonnxruntime.so \
 cargo run --release --example extract_pii -p gliner2-rs -- models/pii-onnx
