@@ -1,3 +1,19 @@
+## [v0.9.1] - 2026-08-26
+### 📚 Diagnostics
+- **The OOM error now says what to do.** Past a few thousand words a single
+  `extract` call cannot fit in device memory on any transport — one call builds
+  `num_words x max_width` span representations, and at 6 600 words the encoder's
+  `Expand` alone asks for 10.8 GB. ORT reported that as a failed allocation of N
+  bytes, which is true and useless. The error now carries the word count and
+  names `extract_long`.
+- Measured threshold on an idle RTX 3090 with the PII model: `extract` works up
+  to 4 000 words on both transports and fails from 5 000. Written into the
+  README, since "a few thousand" is not something a caller should have to
+  discover by hitting it.
+- The arena-poisoning caveat is softened to match what actually happens:
+  `extract_long` does recover after a failed `extract`, because the engine has
+  dropped to the standard path by then and the windows are small.
+
 ## [v0.9.0] - 2026-08-26
 ### ✨ Features
 - **Long documents.** `extract_long` splits the text into overlapping word

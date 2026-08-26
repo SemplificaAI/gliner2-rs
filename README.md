@@ -126,10 +126,18 @@ crate does not carry it.
 
 ## Long documents
 
-`extract` sees one window. mDeBERTa-v3 is trained to 512 positions, and past
-that the span buffers grow with the word count until the device refuses them —
-on a 5 000-word document `span_rep` asks for 541 MB and the call fails, on
-either transport.
+`extract` sees one window, and one call builds `num_words × max_width` span
+representations — so the memory it needs grows with the text until the device
+refuses. Measured on an RTX 3090 (24 GB, idle) with the PII model:
+
+| words | `extract` |
+|---|---|
+| up to 4 000 | works, both transports |
+| 5 000 and above | **fails** — `Expand` alone asks for 10.8 GB at 6 600 words |
+
+Binding gives way first and the engine drops to the standard path by itself;
+past the threshold neither fits, and the error now says so and names the way out
+rather than relaying a byte count.
 
 ```rust
 let out = engine.extract_long(&document, &tasks)?;   // 384-word windows, 64 overlap
@@ -155,10 +163,11 @@ right, since a prompt injection buried on page nine is still an injection; for a
 descriptive label it is optimistic, so read a document-level classification as
 "somewhere in here", not "overall".
 
-**One caveat worth knowing.** A device OOM leaves the ORT arena in a state where
-later small calls can fail too. If `extract` has already failed on an oversized
-input, `extract_long` in the same process may fail for that reason and not
-because of chunking. Call `extract_long` directly rather than as a fallback.
+**One caveat worth knowing.** A device OOM can leave the ORT arena in a state
+where later calls fail for reasons of their own. In practice `extract_long`
+recovers — the engine has dropped to the standard path by then and the windows
+are small — but calling it directly rather than as a fallback is the cleaner
+shape.
 
 ---
 

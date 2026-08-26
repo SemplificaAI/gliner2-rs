@@ -431,9 +431,39 @@ impl SpanEngine {
                 eprintln!("[gliner2] {e}; continuing on the standard path");
                 self.chain.fall_back();
                 self.extract_once(text, tasks, params)
+                    .map_err(|again| self.explain_oom(text, again))
             }
+            Err(e) => Err(self.explain_oom(text, e)),
             other => other,
         }
+    }
+
+    /// Adds the one thing the runtime's own message never says: what to do.
+    ///
+    /// `span_rep` enumerates `num_words × max_width` spans, so the memory a call
+    /// needs grows with the text and there is a length past which no transport
+    /// helps — on an RTX 3090 with this model that is somewhere between four and
+    /// five thousand words. ORT reports it as a failed allocation of N bytes,
+    /// which is true and useless.
+    fn explain_oom(&self, text: &str, err: anyhow::Error) -> anyhow::Error {
+        let is_oom = matches!(
+            err.downcast_ref::<GlinerError>(),
+            Some(GlinerError::OomDeviceBinding(_) | GlinerError::OomDeviceStandard(_))
+        );
+        if !is_oom {
+            return err;
+        }
+        let words = crate::processor::WhitespaceTokenSplitter::new()
+            .map(|s| s.split_with_offsets(text).len())
+            .unwrap_or(0);
+        anyhow::anyhow!(
+            "{err}\n\n\
+             The text is {words} words. One call builds num_words x max_width \
+             ({mw}) span representations, so past a few thousand words no execution \
+             mode fits in device memory. Use extract_long(), which windows the text \
+             and merges the results.",
+            mw = self.max_width,
+        )
     }
 
     fn extract_once(
