@@ -2,8 +2,8 @@
 
 //! Prompt construction and tokenization.
 //!
-//! Replicates `gliner2/processor.py::SchemaTransformer` from the gliner2 2.0.0
-//! package. The token layout of one schema group is exactly:
+//! Replicates `gliner2/processor.py::SchemaTransformer` from version 2.0.0 of the
+//! `gliner2` Python package. The token layout of one schema group is exactly:
 //!
 //! ```text
 //! ["(", "[P]", prompt_str, "("] + [child_prefix, field_name] * N + [")", ")"]
@@ -28,7 +28,7 @@
 //!    Character offsets keep indexing the original text, so extracted spans
 //!    preserve their original casing.
 //!
-//! Verified against ground truth from gliner2 2.0.0: for
+//! Verified against ground truth from the `gliner2` Python package 2.0.0: for
 //! `entities(person, organization, location) + classification(sentiment, …)`
 //! the expected positions are `[[1, 6, 8, 10], [18, 21, 23]]`.
 //! See the `ground_truth_layout` test at the bottom of this file.
@@ -403,7 +403,7 @@ mod tests {
         .find(|p| p.exists())
     }
 
-    /// Ground truth produced by gliner2 2.0.0:
+    /// Ground truth produced by the `gliner2` Python package 2.0.0:
     ///
     /// ```text
     /// schema_tokens_list = [

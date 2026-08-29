@@ -47,7 +47,29 @@ ndarray = "0.17"
 # keeps TLS on `rustls`: hf-hub's default set pulls `native-tls` and with it
 # `openssl` — a C library and its CVE stream — for no gain here.
 hf-hub = { version = "0.5.0", default-features = false, features = ["ureq"] }
-tokenizers = "0.23"
+# Default features pull in `esaxx_fast`, which compiles a C++ translation unit
+# through `esaxx-rs/cpp` with the STATIC CRT (/MT) on MSVC. Most C/C++ crates use
+# the dynamic one (/MD), and two CRTs in one image is what LNK2038 refuses:
+# linking `gliner2-rs` beside `tesseract-rs` fails outright on Windows. A
+# consumer cannot undo this — Cargo features are additive — so the choice has to
+# be made here.
+#
+# `esaxx_fast` is trainer-only: in tokenizers 0.23.1 it appears once, at
+# models/unigram/trainer.rs:227, and without it the same call takes the pure-Rust
+# `esaxx_rs::suffix_rs`. This crate does inference and never trains a Unigram
+# model, so the path is unreachable; what disappears is the compiled C++ object.
+#
+# `fancy-regex` replaces `onig` as the `SysRegex` behind the ByteLevel/Split
+# pre-tokenizers — a real change to the inference path, so it was measured
+# rather than assumed (see RELEASE_NOTES). It removes a second C dependency.
+# One backend is mandatory: `default-features = false` alone fails with
+# `compile_error!("One of the `onig`, or `fancy-regex` features must be
+# enabled")`. Note that features being additive, a consumer that asks tokenizers
+# for `onig` gets it back — onig wins when both are enabled.
+tokenizers = { version = "0.23", default-features = false, features = [
+    "progressbar",
+    "fancy-regex",
+] }
 anyhow = "1.0"
 half = "2.4"
 serde = { version = "1.0", features = ["derive"] }

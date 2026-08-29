@@ -59,7 +59,7 @@ pub struct InferenceParams {
     pub multi_label_override: Option<bool>,
     /// Shared overlap policy. `None` (the default) selects the historical
     /// greedy decoder of the span architecture, governed by `flat_ner`; that is
-    /// the same choice gliner2 2.0.0 makes when `overlap_policy` is left
+    /// the same choice the `gliner2` Python package 2.0.0 makes when `overlap_policy` is left
     /// unspecified on a span checkpoint. Naming one switches to the resolver
     /// shared with the boundary architecture, and `flat_ner` is then ignored.
     pub overlap_policy: Option<OverlapPolicy>,
@@ -758,7 +758,7 @@ impl SpanEngine {
             // Python scopes `finalize_spans` per entity name — the resolver
             // runs inside `for name in entity_order`, one label's spans at a
             // time — so labels never interact under an explicit policy either
-            // (gliner2 2.0.0, inference/runtime.py). Resolving across the
+            // (`gliner2` Python package 2.0.0, inference/runtime.py). Resolving across the
             // whole task at once would collapse the same stretch under two
             // labels, which the reference deliberately keeps.
             Some(policy) => {

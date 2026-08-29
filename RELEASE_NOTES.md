@@ -1,3 +1,53 @@
+## [v0.9.6] - 2026-08-29
+### 🐛 Fixes
+- **`gliner2-rs` could not be linked beside any crate using the dynamic CRT on
+  Windows/MSVC.** `tokenizers` was declared with default features, which enable
+  `esaxx_fast` → `esaxx-rs/cpp`: a C++ translation unit built against the
+  **static** CRT (`/MT`). Most C/C++ crates use the dynamic one (`/MD`), and two
+  CRTs in one image is exactly what `LNK2038` refuses — a downstream binary
+  depending on this crate and on `tesseract-rs` failed to link outright. Cargo
+  features are additive, so no consumer could switch it off; the fix belongs
+  here.
+
+  ```toml
+  tokenizers = { version = "0.23", default-features = false,
+                 features = ["progressbar", "fancy-regex"] }
+  ```
+
+  `esaxx_fast` is trainer-only — one call site, `models/unigram/trainer.rs:227`,
+  with a pure-Rust `suffix_rs` fallback — and this crate never trains a Unigram
+  model, so nothing on the inference path changes. Verified on a clean rebuild:
+  `onig`/`onig_sys` leave the tree entirely, `esaxx-rs` stays as a pure-Rust
+  dependency with **no compiled C++ object**, and the `cpp` feature no longer
+  appears in the feature graph.
+
+  Swapping `onig` for `fancy-regex` does touch inference — `SysRegex` backs the
+  ByteLevel/Split pre-tokenizers — so it was measured rather than assumed:
+
+  | instrument | result |
+  |---|---|
+  | `ground_truth_layout` (sub-token positions vs the Python package) | passes |
+  | PII model, 13 entities | byte-identical |
+  | Guardrails model, 13 entities | byte-identical |
+  | `cases_pii.json`, 13 cases | byte-identical |
+  | `cases_guardrails.json`, 13 cases | byte-identical |
+
+  Reported with a complete diagnosis and downstream verification by an external
+  contributor; every claim in the report was reproduced here before applying,
+  including the pitfall that `default-features = false` alone fails with
+  `compile_error!("One of the `onig`, or `fancy-regex` features must be
+  enabled")`.
+
+  Not measured: tokenization **throughput** with `fancy-regex` versus `onig`.
+  The ONNX forward pass dominates at the passage lengths this crate is used on,
+  but a long-document workload should benchmark before assuming parity.
+
+### 📝 Wording
+- "gliner2 2.0.0" now reads "the `gliner2` Python package 2.0.0" wherever it
+  appears. The version belongs to the Python library, not to any model or
+  architecture — there is no GLiNER2 v2.0, and the only 2.0 in this stack is
+  `ort` 2.0.0-rc.13.
+
 ## [v0.9.5] - 2026-08-26
 ### 🧹 Workspace
 - **`gliner2_inference` is removed.** Its one capability this crate lacked —
